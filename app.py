@@ -8,12 +8,11 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURATION ---
-FILENAME = "VOCAB_COGLI_MASTER_CLEAN_v1.2.csv"
+FILENAME_PART = "VOCAB_COGLI_MASTER_CLEAN"
 
-st.set_page_config(page_title="COGLI Diagnostic", layout="centered")
-st.title("🎯 COGLI Quiz Diagnostic")
+st.set_page_config(page_title="COGLI Super-Search", layout="centered")
+st.title("🎯 COGLI Super-Search Diagnostic")
 
-# --- GOOGLE DRIVE CONNECTION ---
 @st.cache_resource
 def get_drive_service():
     try:
@@ -30,55 +29,64 @@ def load_data():
     service = get_drive_service()
     if not service: return None
 
-    # DEBUG: List ALL files the robot can see to find the discrepancy
-    st.write("🔍 **Robot is searching...**")
-    results = service.files().list(pageSize=10, fields="files(id, name, mimeType)").execute()
+    st.write("🔍 **Scanning all shared files (Limit: 100)...**")
+    # Increased pageSize to 100 to see past the folders
+    results = service.files().list(pageSize=100, fields="files(id, name, mimeType)").execute()
     items = results.get('files', [])
     
     if not items:
-        st.warning("⚠️ The Robot sees **ZERO** files. Check folder sharing permissions.")
+        st.warning("⚠️ The Robot sees ZERO files.")
         return None
 
-    st.write("📂 **Files the Robot can see:**")
-    for item in items:
-        st.write(f"- `{item['name']}` (Type: `{item['mimeType']}`)")
+    # Display everything found to help us identify the exact filename
+    with st.expander("See all 100 files the Robot found"):
+        for item in items:
+            st.write(f"- `{item['name']}` (Type: `{item['mimeType']}`)")
 
-    # Aggressive Search: Look for the name only, ignore type for a moment
+    # Search for the file using just the main part of the name
     search = service.files().list(
-        q=f"name contains 'VOCAB_COGLI_MASTER_CLEAN'",
+        q=f"name contains '{FILENAME_PART}'",
         fields="files(id, name, mimeType)"
     ).execute()
     found_files = search.get('files', [])
 
     if not found_files:
-        st.error(f"❌ Could not find any file containing '{FILENAME}'")
+        st.error(f"❌ Still cannot find a file containing '{FILENAME_PART}'")
+        st.info("Check if the file is actually inside the 'COGLI VOCABULARY' folder.")
         return None
 
+    # Pick the first match
     target = found_files[0]
-    st.success(f"✅ Found: `{target['name']}`")
+    st.success(f"✅ Found Match: `{target['name']}`")
 
     # Download Logic
-    request = service.files().get_media(fileId=target['id'])
-    if target['mimeType'] == 'application/vnd.google-apps.spreadsheet':
-        # If it's a Google Sheet, we must export it as CSV
-        request = service.files().export_media(fileId=target['id'], mimeType='text/csv')
-    
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    
-    fh.seek(0)
-    return pd.read_csv(fh)
+    try:
+        if target['mimeType'] == 'application/vnd.google-apps.spreadsheet':
+            st.info("Converting Google Sheet to CSV on the fly...")
+            request = service.files().export_media(fileId=target['id'], mimeType='text/csv')
+        else:
+            request = service.files().get_media(fileId=target['id'])
+        
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        
+        fh.seek(0)
+        return pd.read_csv(fh)
+    except Exception as e:
+        st.error(f"Download Error: {e}")
+        return None
 
 # --- RUN APP ---
 df = load_data()
 
 if df is not None:
     st.divider()
-    st.write("📊 **Data Loaded Successfully!**")
-    st.dataframe(df.head()) # Show the first few rows to confirm
+    st.balloons()
+    st.success("📊 **DATA CONNECTED!**")
+    st.write("### Preview of your Master Vocabulary:")
+    st.dataframe(df.head(10)) 
     
-    if st.button("Start Quiz Mode"):
-        st.info("Diagnostic complete. We will revert to the clean Quiz UI next.")
+    st.info("Once you confirm this data is correct, I will provide the final Quiz UI code.")
