@@ -32,7 +32,7 @@ def load_data_from_drive():
 
     # Search for the specific CSV file in the shared folder
     results = service.files().list(
-        q=f"name = '{FILENAME}'",
+        q=f"name = '{FILENAME}' and mimeType = 'text/csv'",
         fields="files(id, name)"
     ).execute()
     items = results.get('files', [])
