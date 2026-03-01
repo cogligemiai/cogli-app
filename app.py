@@ -104,8 +104,7 @@ if df is not None:
             random.shuffle(opts)
             correct_letter = chr(65 + opts.index(correct_def))
 
-            # --- 2. PRE-FETCH ALL AUDIO (The Sync Fix) ---
-            status_spot.info("Loading next word...")
+            # --- 2. PRE-FETCH ALL AUDIO ---
             challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
             answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
             
@@ -120,18 +119,15 @@ if df is not None:
             audio_spot.empty()
             time.sleep(0.1) 
             audio_spot.markdown(challenge_audio, unsafe_allow_html=True)
+            status_spot.info("Speaking Challenge...")
             
-            # Wait for speech (approx 2.4 words/sec)
+            # Wait exactly the estimated time for the speech to finish (approx 2.4 words/sec)
             est_speech_time = int(len(challenge_text.split()) / 2.4)
             time.sleep(est_speech_time)
             
-            # Visual Countdown (2s)
-            for i in range(2, 0, -1):
-                status_spot.warning(f"YOUR TURN ({i}s)")
-                time.sleep(1)
+            # NO COUNTDOWN. IMMEDIATE RESOLUTION.
 
             # --- 4. PHASE B: THE RESOLUTION ---
-            # Visual and Audio fire at the exact same millisecond
             status_spot.success(f"Answer: {correct_letter}")
             audio_spot.empty()
             time.sleep(0.1)
@@ -141,7 +137,7 @@ if df is not None:
             est_res_time = int(len(answer_text.split()) / 2.4)
             time.sleep(est_res_time)
             
-            # Loop automatically repeats instantly
+            # Loop automatically repeats instantly to the next word
 
 else:
     st.warning("Connecting to COGLI Data...")
