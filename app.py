@@ -67,7 +67,6 @@ def generate_word_bundle(df):
     if raw_nuance.lower() in ['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
         nuance_text = ""
     else:
-        # No "Nuance:" prefix as requested
         nuance_text = f" {raw_nuance}"
         
     others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
@@ -75,7 +74,8 @@ def generate_word_bundle(df):
     random.shuffle(opts)
     correct_letter = chr(65 + opts.index(correct_def))
 
-    challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
+    # Changed "The word is" to "Next word"
+    challenge_text = f"Next word. {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
     answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
 
     return {
@@ -129,23 +129,21 @@ if df is not None:
 
         # --- PHASE A: THE CHALLENGE ---
         header_spot.markdown(f"### **Word:** {bundle['word'].upper()}")
-        # Added double spaces after the colons
-        content_spot.markdown(f"**A:**  {bundle['opts'][0]}\n\n**B:**  {bundle['opts'][1]}\n\n**C:**  {bundle['opts'][2]}")
+        # Added triple spaces after the colons
+        content_spot.markdown(f"**A:**   {bundle['opts'][0]}\n\n**B:**   {bundle['opts'][1]}\n\n**C:**   {bundle['opts'][2]}")
         
         time.sleep(0.05) 
         audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
         
         start_time = time.time()
-        # Calibrated divisor (2.7) ensures Option C finishes correctly
         est_speech_time = (len(bundle['challenge_text'].split()) / 2.7) 
         
-        # Prefetch Word #2 in background
+        # Prefetch Word #2
         st.session_state.next_bundle = generate_word_bundle(df)
         
         elapsed_time = time.time() - start_time
         remaining_speech_time = est_speech_time - elapsed_time
         
-        # Wait for speech to finish + requested 2 second buffer
         if remaining_speech_time > 0:
             time.sleep(remaining_speech_time + 2.0)
         else:
@@ -158,8 +156,6 @@ if df is not None:
         audio_spot.markdown(bundle['answer_audio'], unsafe_allow_html=True)
         
         est_res_time = (len(bundle['answer_text'].split()) / 2.7) 
-        
-        # 2.0s buffer after answer as requested
         time.sleep(est_res_time + 2.0)
         
         # Swap and rerun
