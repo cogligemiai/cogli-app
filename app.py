@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="COGLI Car Vocabulary", page_icon="🚗", layout="centered")
+st.set_page_config(page_title="COGLI Car Vocab", page_icon="🚘", layout="centered")
 
 # --- ENGINES (Cached) ---
 @st.cache_resource
@@ -51,6 +51,7 @@ def get_audio_html(text):
     """Generates the HTML for the audio player."""
     if not client: return ""
     try:
+        # tts-1 is the low-latency model optimized for speed
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
         # Random ID forces browser to treat this as a new audio event every time
@@ -67,7 +68,7 @@ if not client or not drive_service:
 df = load_data()
 
 if df is not None:
-    st.title("🚗 COGLI Car Vocabulary")
+    st.title("🚘 COGLI Car Vocab")
 
     # Layout Containers
     header_spot = st.empty()
@@ -98,40 +99,42 @@ if df is not None:
             correct_letter = chr(65 + opts.index(correct_def))
 
             # --- 2. PHASE A: THE CHALLENGE ---
+            # VISUALS FIRST (Instant Feedback)
             header_spot.markdown(f"### **Word:** {word.upper()}")
             content_spot.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
-            status_spot.info("Speaking Challenge...")
+            status_spot.info("Generating Audio...") # Let user know it's coming
             
-            # Flicker (Clear Audio)
-            audio_spot.empty()
-            time.sleep(0.1) 
-            
+            # AUDIO GENERATION (Happens while user reads)
+            audio_spot.empty() # Clear old player
             challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
             audio_html = get_audio_html(challenge_text)
+            
+            # PLAY AUDIO
+            status_spot.info("Speaking Challenge...")
             audio_spot.markdown(audio_html, unsafe_allow_html=True)
             
-            # Wait for speech (approx 2.5 words/sec) + 5 SECONDS THINKING
-            est_speech_time = int(len(challenge_text.split()) / 2.5)
+            # Wait for speech (approx 2.4 words/sec) + 3 SECONDS THINKING
+            est_speech_time = int(len(challenge_text.split()) / 2.4)
             time.sleep(est_speech_time)
             
-            # Visual Countdown (5s)
-            for i in range(5, 0, -1):
+            # Visual Countdown (3s)
+            for i in range(3, 0, -1):
                 status_spot.warning(f"YOUR TURN ({i}s)")
                 time.sleep(1)
 
             # --- 3. PHASE B: THE RESOLUTION ---
             status_spot.success(f"Answer: {correct_letter}")
             
-            # Flicker (Clear Audio)
+            # AUDIO GENERATION
             audio_spot.empty()
-            time.sleep(0.1)
-
             answer_text = f"The correct answer is {correct_letter}. {correct_def}. Nuance: {nuance}."
             audio_html = get_audio_html(answer_text)
+            
+            # PLAY AUDIO
             audio_spot.markdown(audio_html, unsafe_allow_html=True)
             
             # Wait for resolution speech ONLY (No extra buffer)
-            est_res_time = int(len(answer_text.split()) / 2.5)
+            est_res_time = int(len(answer_text.split()) / 2.4)
             time.sleep(est_res_time)
             
             # Loop automatically repeats instantly
