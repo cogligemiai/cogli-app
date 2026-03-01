@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="COGLI Car Vocab", page_icon="🚘", layout="centered")
+st.set_page_config(page_title="COGLI Car Vocabulary", page_icon="🚗", layout="centered")
 
 # --- ENGINES (Cached) ---
 @st.cache_resource
@@ -67,7 +67,7 @@ if not client or not drive_service:
 df = load_data()
 
 if df is not None:
-    st.title("🚘 COGLI Car Vocab")
+    st.title("🚗 COGLI Car Vocabulary")
 
     # Layout Containers
     header_spot = st.empty()
@@ -92,7 +92,6 @@ if df is not None:
             row = df.iloc[random.randint(0, len(df)-1)]
             word, correct_def, nuance = row['Word'], row['Definition'], row.get('Nuance', 'No nuance provided.')
             
-            # This is where the typo was. Fixed now:
             others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
             opts = [correct_def] + others
             random.shuffle(opts)
@@ -131,11 +130,11 @@ if df is not None:
             audio_html = get_audio_html(answer_text)
             audio_spot.markdown(audio_html, unsafe_allow_html=True)
             
-            # Wait for resolution speech + short pause
-            est_res_time = int(len(answer_text.split()) / 2.5) + 2
+            # Wait for resolution speech ONLY (No extra buffer)
+            est_res_time = int(len(answer_text.split()) / 2.5)
             time.sleep(est_res_time)
             
-            # Loop automatically repeats
+            # Loop automatically repeats instantly
 
 else:
     st.warning("Connecting to COGLI Data...")
