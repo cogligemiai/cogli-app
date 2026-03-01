@@ -52,7 +52,7 @@ def get_audio_html(text):
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
-        rnd_id = random.randint(1000, 9999)
+        rnd_id = random.randint(1000, 99999)
         return f'<audio id="audio-{rnd_id}" autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
     except:
         return ""
@@ -79,6 +79,12 @@ if df is not None:
 
     # 2. THE RERUN LOOP
     if st.session_state.loop_running:
+        # Layout Containers
+        header_spot = st.empty()
+        content_spot = st.empty()
+        status_spot = st.empty()
+        audio_spot = st.empty()
+        
         # --- SETUP WORD & NUANCE ---
         row = df.iloc[random.randint(0, len(df)-1)]
         word = row['Word']
@@ -92,51 +98,5 @@ if df is not None:
             
         others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
         opts = [correct_def] + others
-        random.shuffle(opts)
-        correct_letter = chr(65 + opts.index(correct_def))
-
-        # --- INSTANT VISUALS ---
-        # The text appears immediately before any audio is generated
-        st.markdown(f"### **Word:** {word.upper()}")
-        st.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
+        random.s
         
-        audio_spot = st.empty()
-        status_spot = st.empty()
-
-        # --- PHASE A: THE CHALLENGE ---
-        challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
-        status_spot.info("Generating Audio...")
-        
-        challenge_audio = get_audio_html(challenge_text)
-        status_spot.info("Speaking Challenge...")
-        audio_spot.markdown(challenge_audio, unsafe_allow_html=True)
-        
-        # Calculate speech time (aggressive tracking)
-        est_speech_time = (len(challenge_text.split()) / 2.7) 
-        time.sleep(est_speech_time)
-        
-        # EXACT 2-SECOND PAUSE
-        for i in range(2, 0, -1):
-            status_spot.warning(f"YOUR TURN ({i}s)")
-            time.sleep(1)
-
-        # --- PHASE B: THE RESOLUTION ---
-        status_spot.success(f"Answer: {correct_letter}")
-        
-        answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
-        answer_audio = get_audio_html(answer_text)
-        
-        # Clear old audio, inject new audio
-        audio_spot.empty()
-        time.sleep(0.1)
-        audio_spot.markdown(answer_audio, unsafe_allow_html=True)
-        
-        # 50% LESS DEAD AIR: Aggressive cutoff timer
-        est_res_time = (len(answer_text.split()) / 3.0) 
-        time.sleep(est_res_time)
-        
-        # INSTANTLY RESTART THE PAGE (Fixes the black screen)
-        st.rerun()
-
-else:
-    st.warning("Connecting to COGLI Data...")
