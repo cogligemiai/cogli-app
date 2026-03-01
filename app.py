@@ -93,7 +93,7 @@ def get_audio_html(text):
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
-        rnd_id = random.randint(1000, 99999)
+        rnd_id = random.randint(1000, 999999)
         return f'<audio id="audio-{rnd_id}" autoplay="true" preload="auto"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
     except: return ""
 
@@ -137,6 +137,7 @@ if df_master is not None:
     if 'loop_running' not in st.session_state:
         st.session_state.loop_running = False
         st.session_state.welcome_played = False
+        st.session_state.is_first_word = True
     if 'selected_tiers' not in st.session_state:
         st.session_state.selected_tiers = [2] 
 
@@ -146,7 +147,6 @@ if df_master is not None:
         t_col1, t_col2, t_col3 = st.columns(3)
         
         with t_col1:
-            # If selected, button is Blue (primary), else Grey (secondary)
             if st.button("Maintenance", type="primary" if 1 in st.session_state.selected_tiers else "secondary"):
                 if 1 in st.session_state.selected_tiers: st.session_state.selected_tiers.remove(1)
                 else: st.session_state.selected_tiers.append(1)
@@ -181,15 +181,16 @@ if df_master is not None:
         status_spot = st.empty()
         audio_spot = st.empty()
         
+        # 1. WELCOME
         if not st.session_state.welcome_played:
             audio_spot.markdown(st.session_state.welcome_audio, unsafe_allow_html=True)
-            time.sleep(3.0) 
+            time.sleep(3.5) 
             st.session_state.welcome_played = True
             
         bundle = st.session_state.current_bundle
         
+        # 2. DISPLAY CHALLENGE
         header_spot.markdown(f"<span class='word-label'>Word: </span><span class='blue-word'>{bundle['word']}</span>", unsafe_allow_html=True)
-        
         options_html = f"""
         <div class='option-box'><div class='option-label'>A:</div><div class='option-text'>{bundle['opts'][0]}</div></div>
         <div class='option-box'><div class='option-label'>B:</div><div class='option-text'>{bundle['opts'][1]}</div></div>
@@ -197,26 +198,30 @@ if df_master is not None:
         """
         content_spot.markdown(options_html, unsafe_allow_html=True)
         
+        # 3. PLAY CHALLENGE AUDIO
+        audio_spot.empty()
+        time.sleep(0.2) # Buffer for browser
         audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
+        
+        # 4. PRE-FETCH NEXT WORD WHILE SPEAKING
         start_time = time.time()
         st.session_state.next_bundle = generate_word_bundle(st.session_state.df, is_first=False)
         
+        # 5. WAIT FOR CHALLENGE TO FINISH
         speech_wait = (len(bundle['challenge_text'].split()) / 2.1)
         time.sleep(max(0, speech_wait - (time.time() - start_time)) + 2.0)
 
+        # 6. RESOLUTION
         status_spot.success(f"Answer: {bundle['correct_letter']}")
         audio_spot.empty()
-        time.sleep(0.1)
+        time.sleep(0.2)
         audio_spot.markdown(bundle['answer_audio'], unsafe_allow_html=True)
         
-        # Navigation Button (Visible during the answer phase)
-        if st.button("⚙️ CHANGE TIERS"):
-            st.session_state.loop_running = False
-            st.rerun()
-
+        # 7. WAIT FOR ANSWER TO FINISH
         res_wait = (len(bundle['answer_text'].split()) / 2.1)
         time.sleep(res_wait + 2.0)
         
+        # 8. RECYCLE BUNDLE AND RERUN
         st.session_state.current_bundle = st.session_state.next_bundle
         st.rerun()
 else:
