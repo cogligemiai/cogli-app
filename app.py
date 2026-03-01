@@ -13,16 +13,21 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🚗", layout="centered")
 
-# --- CUSTOM CAR-SPEC UI ---
+# --- CUSTOM "FAT-FINGER" CSS ---
 st.markdown("""
     <style>
+    /* Make the Start Button Massive */
     div.stButton > button:first-child {
-        height: 5em; width: 100%; font-size: 24px !important;
-        font-weight: bold; border-radius: 20px; border: 2px solid #1E90FF; margin-top: 20px;
+        height: 5em; width: 100%; font-size: 28px !important;
+        font-weight: bold; border-radius: 20px; border: 3px solid #1E90FF; margin-top: 30px;
     }
-    .stMultiSelect [data-baseweb="tag"] {
-        background-color: #1E90FF !important;
+    /* Make Multi-select text larger for mobile */
+    .stMultiSelect div div div div {
+        font-size: 22px !important;
+        padding: 10px !important;
     }
+    /* Increase label size */
+    label { font-size: 24px !important; font-weight: bold !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -107,17 +112,23 @@ if df_master is not None:
     if not st.session_state.loop_running:
         st.subheader("Select Training Tiers")
         
-        # MULTI-SELECT UI
-        tier_options = {
+        # Mapping for the Multi-Select
+        tier_map = {
             "Tier 1: Maintenance": 1,
             "Tier 2: Advanced": 2,
             "Tier 3: Specialized": 3
         }
-        selected_labels = st.multiselect("Choose one or more tiers:", list(tier_options.keys()), default=["Tier 2: Advanced"])
-        selected_values = [tier_options[label] for label in selected_labels]
+        
+        selected_tiers = st.multiselect(
+            "Tap to add/remove tiers:",
+            options=list(tier_map.keys()),
+            default=["Tier 2: Advanced"]
+        )
+        
+        # Convert labels back to numbers for filtering
+        selected_values = [tier_map[t] for t in selected_tiers]
         
         if 'Level' in df_master.columns:
-            # Filter based on selected numeric values
             df_filtered = df_master[df_master['Level'].astype(float).isin(selected_values)]
         else:
             st.warning("⚠️ 'Level' column not found. Defaulting to all words.")
@@ -125,8 +136,8 @@ if df_master is not None:
 
         st.divider()
         if st.button("▶️ START VOCAB QUIZ", type="primary"):
-            if not selected_labels:
-                st.error("Please select at least one tier.")
+            if not selected_tiers:
+                st.error("Please select at least one tier!")
             else:
                 st.session_state.df = df_filtered
                 st.session_state.current_bundle = generate_word_bundle(df_filtered, is_first=True)
