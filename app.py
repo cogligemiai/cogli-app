@@ -13,27 +13,35 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🚗", layout="centered")
 
-# --- CUSTOM "CAR-SPEC" CSS ---
+# --- CUSTOM "IUI" CSS (WIDE & SHORT BUTTONS) ---
 st.markdown("""
     <style>
-    /* Main Start Button */
-    div.stButton > button:first-child {
-        height: 4em !important;
+    /* Force buttons to be wide and short */
+    .stButton > button {
         width: 100% !important;
-        font-size: 28px !important;
+        height: 2.5em !important; /* Shorter height */
+        padding: 0px !important;
+        font-size: 18px !important;
         font-weight: bold !important;
+        border-radius: 10px !important;
+        border: 2px solid #444 !important;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    /* Highlight selected Tiers in Blue */
+    .stButton > button:active, .stButton > button:focus {
+        border-color: #1E90FF !important;
+    }
+    /* Start Button - Red and Wide */
+    div.stButton > button[kind="primary"] {
         background-color: #FF4B4B !important;
         color: white !important;
-        border-radius: 15px !important;
+        border: none !important;
+        height: 3em !important;
+        font-size: 22px !important;
     }
-    /* Tier Toggle Buttons */
-    .stButton > button {
-        border-radius: 10px;
-        height: 3em;
-        font-weight: bold;
-    }
-    /* Label Styling */
-    .stMarkdown h3 { font-size: 22px !important; }
+    /* Spacing */
+    .block-container { padding-top: 1rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,8 +51,7 @@ def init_engines():
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         creds_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-        if "private_key" in creds_info:
-            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
         creds = service_account.Credentials.from_service_account_info(creds_info)
         drive_service = build('drive', 'v3', credentials=creds)
         return client, drive_service
@@ -79,12 +86,19 @@ def get_audio_html(text):
     except: return ""
 
 def generate_word_bundle(df, is_first=False):
+    # RESILIENCE FIX: Use column index instead of name to avoid KeyError
     row = df.iloc[random.randint(0, len(df)-1)]
-    word, correct_def = row['Word'], row['Definition']
-    raw_nuance = str(row.get('Nuance', '')).strip()
-    nuance_text = "" if raw_nuance.lower() in ['', 'nan', 'none', 'no nuance provided.'] else f" {raw_nuance}"
+    word = str(row.iloc[0]) # First column
+    correct_def = str(row.iloc[1]) # Second column
     
-    others = df[df['Definition'] != correct_def]['Definition'].sample(min(2, len(df)-1)).tolist()
+    # Try to find Nuance by name, otherwise default
+    nuance_text = ""
+    if 'Nuance' in df.columns:
+        raw_n = str(row['Nuance']).strip()
+        if raw_n.lower() not in ['', 'nan', 'none', 'no nuance provided.']:
+            nuance_text = f" {raw_n}"
+
+    others = df[df.iloc[:, 1] != correct_def].iloc[:, 1].sample(min(2, len(df)-1)).tolist()
     opts = [correct_def] + others
     random.shuffle(opts)
     correct_letter = chr(65 + opts.index(correct_def))
@@ -110,58 +124,48 @@ df_master = load_data()
 if df_master is not None:
     st.title("🚗 COGLI Vocab")
     
-    # Initialize Session States
     if 'loop_running' not in st.session_state:
         st.session_state.loop_running = False
         st.session_state.welcome_played = False
     if 'selected_tiers' not in st.session_state:
-        st.session_state.selected_tiers = [2] # Default to Tier 2
+        st.session_state.selected_tiers = [2] 
 
     # --- START SCREEN ---
     if not st.session_state.loop_running:
-        st.subheader("Select Training Tiers")
+        st.write("### Select Training Tiers")
         
-        # Horizontal Toggle Buttons
-        col1, col2, col3 = st.columns(3)
+        t_col1, t_col2, t_col3 = st.columns(3)
         
-        with col1:
-            m_label = "✅ Tier 1" if 1 in st.session_state.selected_tiers else "Tier 1"
-            if st.button(m_label, key="t1"):
-                if 1 in st.session_state.selected_tiers:
-                    st.session_state.selected_tiers.remove(1)
-                else:
-                    st.session_state.selected_tiers.append(1)
+        with t_col1:
+            m_btn = "✅ Maint." if 1 in st.session_state.selected_tiers else "Maint."
+            if st.button(m_btn, use_container_width=True):
+                if 1 in st.session_state.selected_tiers: st.session_state.selected_tiers.remove(1)
+                else: st.session_state.selected_tiers.append(1)
                 st.rerun()
         
-        with col2:
-            a_label = "✅ Tier 2" if 2 in st.session_state.selected_tiers else "Tier 2"
-            if st.button(a_label, key="t2"):
-                if 2 in st.session_state.selected_tiers:
-                    st.session_state.selected_tiers.remove(2)
-                else:
-                    st.session_state.selected_tiers.append(2)
+        with t_col2:
+            a_btn = "✅ Adv." if 2 in st.session_state.selected_tiers else "Adv."
+            if st.button(a_btn, use_container_width=True):
+                if 2 in st.session_state.selected_tiers: st.session_state.selected_tiers.remove(2)
+                else: st.session_state.selected_tiers.append(2)
                 st.rerun()
                 
-        with col3:
-            s_label = "✅ Tier 3" if 3 in st.session_state.selected_tiers else "Tier 3"
-            if st.button(s_label, key="t3"):
-                if 3 in st.session_state.selected_tiers:
-                    st.session_state.selected_tiers.remove(3)
-                else:
-                    st.session_state.selected_tiers.append(3)
+        with t_col3:
+            s_btn = "✅ Spec." if 3 in st.session_state.selected_tiers else "Spec."
+            if st.button(s_btn, use_container_width=True):
+                if 3 in st.session_state.selected_tiers: st.session_state.selected_tiers.remove(3)
+                else: st.session_state.selected_tiers.append(3)
                 st.rerun()
-
-        st.caption("1: Maintenance | 2: Advanced | 3: Specialized")
 
         # Filter Logic
         if 'Level' in df_master.columns:
             df_filtered = df_master[df_master['Level'].astype(float).isin(st.session_state.selected_tiers)]
         else:
-            st.error("⚠️ Column 'Level' not found in your Google Sheet.")
+            st.error("⚠️ Column 'Level' not found in Sheet.")
             df_filtered = df_master
 
-        st.divider()
-        if st.button("▶️ START VOCAB QUIZ"):
+        st.write("") 
+        if st.button("▶️ START VOCAB QUIZ", type="primary"):
             if not st.session_state.selected_tiers:
                 st.error("Please select at least one tier!")
             else:
