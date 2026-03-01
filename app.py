@@ -48,7 +48,6 @@ def load_data():
         return None
 
 def get_audio_html(text):
-    """Generates the HTML for the audio player."""
     if not client: return ""
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
@@ -57,6 +56,36 @@ def get_audio_html(text):
         return f'<audio id="audio-{rnd_id}" autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
     except:
         return ""
+
+def generate_word_bundle(df):
+    """Creates a complete package of text and pre-downloaded audio for a single word."""
+    row = df.iloc[random.randint(0, len(df)-1)]
+    word = row['Word']
+    correct_def = row['Definition']
+    
+    raw_nuance = str(row.get('Nuance', '')).strip()
+    if raw_nuance.lower() in['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
+        nuance_text = ""
+    else:
+        nuance_text = f" Nuance: {raw_nuance}"
+        
+    others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
+    opts = [correct_def] + others
+    random.shuffle(opts)
+    correct_letter = chr(65 + opts.index(correct_def))
+
+    challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
+    answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
+
+    return {
+        'word': word,
+        'opts': opts,
+        'correct_letter': correct_letter,
+        'challenge_text': challenge_text,
+        'answer_text': answer_text,
+        'challenge_audio': get_audio_html(challenge_text),
+        'answer_audio': get_audio_html(answer_text)
+    }
 
 # --- APP UI ---
 if not client or not drive_service:
@@ -68,103 +97,82 @@ df = load_data()
 if df is not None:
     st.title("🚘 COGLI Car Vocab Quiz")
     
-    # 1. LOOP STATE MANAGER
+    # 1. INITIALIZATION & PRE-LOADING
     if 'loop_running' not in st.session_state:
         st.session_state.loop_running = False
-    
-    if 'welcome_played' not in st.session_state:
         st.session_state.welcome_played = False
+        
+    if 'current_bundle' not in st.session_state:
+        # This spinner shows while it downloads the first audio files
+        with st.spinner("Pre-loading Audio Engine (Takes ~5 seconds)..."):
+            st.session_state.welcome_audio = get_audio_html("Welcome to the COGLI Car Vocab Quiz.")
+            st.session_state.current_bundle = generate_word_bundle(df)
 
-    # Pre-fetch the Welcome Audio while the user is looking at the start screen
-    if 'welcome_audio_html' not in st.session_state:
-        with st.spinner("Pre-loading Audio Engine..."):
-            st.session_state.welcome_audio_html = get_audio_html("Welcome to the COGLI Car Vocab Quiz.")
-
-    # 2. THE START SCREEN
+    # 2. START SCREEN
     if not st.session_state.loop_running:
-        st.info("Engine Ready. Tap start to begin continuous loop.")
+        st.success("Engine Ready! Zero-Latency mode engaged.")
         if st.button("▶️ START VOCAB QUIZ", type="primary"):
             st.session_state.loop_running = True
             st.rerun()
 
     # 3. THE ACTIVE LOOP
     if st.session_state.loop_running:
-        # Layout Containers
         header_spot = st.empty()
         content_spot = st.empty()
         status_spot = st.empty()
         audio_spot = st.empty()
         
-        # --- THE WELCOME SEQUENCE (Plays only once) ---
+        # --- THE WELCOME MESSAGE ---
         if not st.session_state.welcome_played:
-            status_spot.info("System Active...")
-            audio_spot.markdown(st.session_state.welcome_audio_html, unsafe_allow_html=True)
-            time.sleep(2.5) # Wait for welcome message to finish
+            audio_spot.markdown(st.session_state.welcome_audio, unsafe_allow_html=True)
+            time.sleep(2.5) 
             st.session_state.welcome_played = True
-            audio_spot.empty() # Clear player
-        
-        # --- SETUP WORD & NUANCE FILTER ---
-        row = df.iloc[random.randint(0, len(df)-1)]
-        word = row['Word']
-        correct_def = row['Definition']
-        
-        raw_nuance = str(row.get('Nuance', '')).strip()
-        if raw_nuance.lower() in['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
-            nuance_text = ""
-        else:
-            nuance_text = f" Nuance: {raw_nuance}"
+            audio_spot.empty()
             
-        others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
-        opts = [correct_def] + others
-        random.shuffle(opts)
-        
-        correct_letter = chr(65 + opts.index(correct_def))
+        bundle = st.session_state.current_bundle
 
-        challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
-        answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
-
-        # --- INSTANT VISUAL RENDER ---
-        header_spot.markdown(f"### **Word:** {word.upper()}")
-        content_spot.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
+        # --- PHASE A: INSTANT CHALLENGE ---
+        header_spot.markdown(f"### **Word:** {bundle['word'].upper()}")
+        content_spot.markdown(f"**A:** {bundle['opts'][0]}\n\n**B:** {bundle['opts'][1]}\n\n**C:** {bundle['opts'][2]}")
         
-        # --- PHASE A: INSTANT CHALLENGE AUDIO ---
-        challenge_audio = get_audio_html(challenge_text)
-        
-        # Play Challenge Audio immediately
-        audio_spot.empty()
+        # Play pre-fetched challenge audio immediately
         time.sleep(0.05) 
-        audio_spot.markdown(challenge_audio, unsafe_allow_html=True)
+        audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
         status_spot.info("Speaking Challenge...")
         
-        # Start stopwatch
+        # Start a stopwatch
         start_time = time.time()
-        est_speech_time = (len(challenge_text.split()) / 2.7) 
+        est_speech_time = (len(bundle['challenge_text'].split()) / 2.7) 
         
-        # --- BACKGROUND FETCH: GET THE ANSWER AUDIO WHILE SPEAKING ---
-        answer_audio = get_audio_html(answer_text)
+        # --- THE MAGIC TRICK: FETCH NEXT WORD WHILE SPEAKING CURRENT WORD ---
+        st.session_state.next_bundle = generate_word_bundle(df)
         
-        # Wait only the REMAINING time of the speech
+        # Check stopwatch. If fetching the next word took less time than the speech, 
+        # wait out the remainder of the speech time.
         elapsed_time = time.time() - start_time
         remaining_speech_time = est_speech_time - elapsed_time
         if remaining_speech_time > 0:
             time.sleep(remaining_speech_time)
         
-        # EXACT 2-SECOND PAUSE
+        # --- 2-SECOND PAUSE ---
         for i in range(2, 0, -1):
             status_spot.warning(f"YOUR TURN ({i}s)")
             time.sleep(1)
 
-        # --- PHASE B: THE RESOLUTION ---
-        status_spot.success(f"Answer: {correct_letter}")
+        # --- PHASE B: INSTANT RESOLUTION ---
+        status_spot.success(f"Answer: {bundle['correct_letter']}")
         audio_spot.empty()
         time.sleep(0.05)
-        audio_spot.markdown(answer_audio, unsafe_allow_html=True)
         
-        # Aggressive cutoff timer
-        est_res_time = (len(answer_text.split()) / 3.0) 
+        # Play pre-fetched answer audio immediately
+        audio_spot.markdown(bundle['answer_audio'], unsafe_allow_html=True)
+        
+        est_res_time = (len(bundle['answer_text'].split()) / 3.0) 
         time.sleep(est_res_time)
         
-        # INSTANTLY RESTART THE PAGE
+        # --- SWAP THE BARREL & RESTART ---
+        # The 'next_bundle' we fetched in the background becomes the new 'current_bundle'
+        st.session_state.current_bundle = st.session_state.next_bundle
         st.rerun()
 
 else:
