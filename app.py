@@ -11,7 +11,6 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURATION ---
-# Clean, one-line title optimized for Samsung S22 Ultra
 st.set_page_config(page_title="COGLI Vocab", page_icon="🚗", layout="centered")
 
 # --- ENGINES (Cached) ---
@@ -59,16 +58,16 @@ def get_audio_html(text):
         return ""
 
 def generate_word_bundle(df):
-    """Creates a complete package of text and pre-downloaded audio for a single word."""
+    """Creates a bundle with pre-fetched audio and formatted text."""
     row = df.iloc[random.randint(0, len(df)-1)]
     word = row['Word']
     correct_def = row['Definition']
     
     raw_nuance = str(row.get('Nuance', '')).strip()
-    if raw_nuance.lower() in['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
+    if raw_nuance.lower() in ['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
         nuance_text = ""
     else:
-        # Get rid of the redundant word "Nuance" as per request
+        # No "Nuance:" prefix as requested
         nuance_text = f" {raw_nuance}"
         
     others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
@@ -128,41 +127,40 @@ if df is not None:
             
         bundle = st.session_state.current_bundle
 
-        # --- PHASE A: INSTANT CHALLENGE ---
+        # --- PHASE A: THE CHALLENGE ---
         header_spot.markdown(f"### **Word:** {bundle['word'].upper()}")
-        content_spot.markdown(f"**A:** {bundle['opts'][0]}\n\n**B:** {bundle['opts'][1]}\n\n**C:** {bundle['opts'][2]}")
+        # Added double spaces after the colons
+        content_spot.markdown(f"**A:**  {bundle['opts'][0]}\n\n**B:**  {bundle['opts'][1]}\n\n**C:**  {bundle['opts'][2]}")
         
         time.sleep(0.05) 
         audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
         
         start_time = time.time()
-        # Calibrated speaking speed for Alloy voice
-        est_speech_time = (len(bundle['challenge_text'].split()) / 3.1) 
+        # Calibrated divisor (2.7) ensures Option C finishes correctly
+        est_speech_time = (len(bundle['challenge_text'].split()) / 2.7) 
         
-        # Background fetch Word #2 while Word #1 is speaking
+        # Prefetch Word #2 in background
         st.session_state.next_bundle = generate_word_bundle(df)
         
         elapsed_time = time.time() - start_time
         remaining_speech_time = est_speech_time - elapsed_time
-        if remaining_speech_time > 0:
-            time.sleep(remaining_speech_time)
         
-        # --- YOUR TURN PAUSE (Zero Latency Mode) ---
-        status_spot.warning("ANSWER NOW")
-        time.sleep(0.5) # Minimal visual blip for the user
+        # Wait for speech to finish + requested 2 second buffer
+        if remaining_speech_time > 0:
+            time.sleep(remaining_speech_time + 2.0)
+        else:
+            time.sleep(2.0)
 
-        # --- PHASE B: INSTANT RESOLUTION ---
+        # --- PHASE B: THE RESOLUTION ---
         status_spot.success(f"Answer: {bundle['correct_letter']}")
         audio_spot.empty()
         time.sleep(0.1)
-        
         audio_spot.markdown(bundle['answer_audio'], unsafe_allow_html=True)
         
-        # Calibrated answer speaking speed
-        est_res_time = (len(bundle['answer_text'].split()) / 3.1) 
+        est_res_time = (len(bundle['answer_text'].split()) / 2.7) 
         
-        # Added a 1.2s "Breather" to prevent the cutoff effect
-        time.sleep(est_res_time + 1.2)
+        # 2.0s buffer after answer as requested
+        time.sleep(est_res_time + 2.0)
         
         # Swap and rerun
         st.session_state.current_bundle = st.session_state.next_bundle
