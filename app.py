@@ -53,7 +53,7 @@ def get_audio_html(text):
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
-        # We use a random ID to force the browser to see it as a new element
+        # Random ID forces browser to treat this as a new audio event every time
         rnd_id = random.randint(1000, 9999)
         return f'<audio id="audio-{rnd_id}" autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
     except:
@@ -73,7 +73,7 @@ if df is not None:
     header_spot = st.empty()
     content_spot = st.empty()
     status_spot = st.empty()
-    audio_spot = st.empty() # The invisible audio player
+    audio_spot = st.empty() 
     
     # START BUTTON
     if 'loop_running' not in st.session_state:
@@ -81,7 +81,7 @@ if df is not None:
 
     if not st.session_state.loop_running:
         st.info("Tap start. App will cycle continuously.")
-        if st.button("▶️ START CONTINUOUS LOOP", type="primary"):
+        if st.button("▶️ START VOCAB QUIZ", type="primary"):
             st.session_state.loop_running = True
             st.rerun()
 
@@ -92,5 +92,50 @@ if df is not None:
             row = df.iloc[random.randint(0, len(df)-1)]
             word, correct_def, nuance = row['Word'], row['Definition'], row.get('Nuance', 'No nuance provided.')
             
+            # This is where the typo was. Fixed now:
             others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
-            opts = [correct_def] + o
+            opts = [correct_def] + others
+            random.shuffle(opts)
+            correct_letter = chr(65 + opts.index(correct_def))
+
+            # --- 2. PHASE A: THE CHALLENGE ---
+            header_spot.markdown(f"### **Word:** {word.upper()}")
+            content_spot.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
+            status_spot.info("Speaking Challenge...")
+            
+            # Flicker (Clear Audio)
+            audio_spot.empty()
+            time.sleep(0.1) 
+            
+            challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
+            audio_html = get_audio_html(challenge_text)
+            audio_spot.markdown(audio_html, unsafe_allow_html=True)
+            
+            # Wait for speech (approx 2.5 words/sec) + 5 SECONDS THINKING
+            est_speech_time = int(len(challenge_text.split()) / 2.5)
+            time.sleep(est_speech_time)
+            
+            # Visual Countdown (5s)
+            for i in range(5, 0, -1):
+                status_spot.warning(f"YOUR TURN ({i}s)")
+                time.sleep(1)
+
+            # --- 3. PHASE B: THE RESOLUTION ---
+            status_spot.success(f"Answer: {correct_letter}")
+            
+            # Flicker (Clear Audio)
+            audio_spot.empty()
+            time.sleep(0.1)
+
+            answer_text = f"The correct answer is {correct_letter}. {correct_def}. Nuance: {nuance}."
+            audio_html = get_audio_html(answer_text)
+            audio_spot.markdown(audio_html, unsafe_allow_html=True)
+            
+            # Wait for resolution speech + short pause
+            est_res_time = int(len(answer_text.split()) / 2.5) + 2
+            time.sleep(est_res_time)
+            
+            # Loop automatically repeats
+
+else:
+    st.warning("Connecting to COGLI Data...")
