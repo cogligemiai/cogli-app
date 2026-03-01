@@ -16,39 +16,52 @@ st.set_page_config(page_title="COGLI Driving Mode", layout="centered")
 # --- ENGINES (Cached to run only once) ---
 @st.cache_resource
 def init_engines():
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-    creds_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-    creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
-    creds = service_account.Credentials.from_service_account_info(creds_info)
-    drive_service = build('drive', 'v3', credentials=creds)
-    return client, drive_service
+    try:
+        client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+        creds_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
+        creds = service_account.Credentials.from_service_account_info(creds_info)
+        drive_service = build('drive', 'v3', credentials=creds)
+        return client, drive_service
+    except Exception as e:
+        return None, None
 
 client, drive_service = init_engines()
 
 @st.cache_data(ttl=300)
 def load_data():
-    results = drive_service.files().list(q="name contains 'VOCAB_COGLI_MASTER_CLEAN'", fields="files(id, name, mimeType)").execute()
-    items = results.get('files', [])
-    if not items: return None
-    target = items[0]
-    request = drive_service.files().get_media(fileId=target['id']) if target['mimeType'] != 'application/vnd.google-apps.spreadsheet' else drive_service.files().export_media(fileId=target['id'], mimeType='text/csv')
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done: status, done = downloader.next_chunk()
-    fh.seek(0)
-    return pd.read_csv(fh)
+    if not drive_service: return None
+    try:
+        results = drive_service.files().list(q="name contains 'VOCAB_COGLI_MASTER_CLEAN'", fields="files(id, name, mimeType)").execute()
+        items = results.get('files', [])
+        if not items: return None
+        target = items[0]
+        request = drive_service.files().get_media(fileId=target['id']) if target['mimeType'] != 'application/vnd.google-apps.spreadsheet' else drive_service.files().export_media(fileId=target['id'], mimeType='text/csv')
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done: status, done = downloader.next_chunk()
+        fh.seek(0)
+        return pd.read_csv(fh)
+    except:
+        return None
 
 def speak(text):
+    if not client: return
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
         md = f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
         st.markdown(md, unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Voice Error: {e}")
+    except:
+        st.error("Audio generation failed.")
 
 # --- APP UI ---
+if not client or not drive_service:
+    st.error("Credentials Error: Please check Streamlit Secrets.")
+    st.stop()
+
 df = load_data()
 
 if df is not None:
@@ -69,17 +82,17 @@ if df is not None:
     correct_letter = chr(65 + opts.index(correct_def))
 
     st.markdown(f"### **Word:** {word.upper()}")
-    st.write(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
-    st.divider()
-
+    
     # --- DRIVING LOOP LOGIC ---
     if not st.session_state.drive_loop_active:
+        st.info("Tap start to begin the hands-free audio loop.")
         if st.button("▶️ START DRIVING LOOP", type="primary"):
             st.session_state.drive_loop_active = True
-            st.rerun() # Immediately restart the script in active mode
+            st.rerun()
     
     if st.session_state.drive_loop_active:
         st.success("Audio Loop is Active...")
+        st.write(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
         
         # 1. The Challenge
         speak(f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}.")
@@ -89,34 +102,15 @@ if df is not None:
         for i in range(10, 0, -1):
             placeholder.metric("Thinking time...", f"{i}s")
             time.sleep(1)
+        placeholder.empty()
         
         # 3. The Resolution
         speak(f"The correct answer is {correct_letter}: {correct_def}. Nuance: {nuance}.")
-        time.sleep(5) # Pause after resolution
+        st.info(f"Answer: {correct_letter}")
+        time.sleep(5) 
         
-        # 4. Automatically transition to the next word
+        # 4. Loop
         st.rerun()
 
 else:
     st.warning("Connecting to COGLI Data...")
-```After pasting, click **"Commit changes..."**.
-
-#### **Step 2: Reboot the App**
-1.  Go to your app's URL.
-2.  Click **"Manage app"** in the bottom right.
-3.  Click the **three dots (⋮)** at the top of the sidebar.
-4.  Select **"Reboot app"**.
-
----
-
-### **DETERMINISTIC VERIFICATION**
-
-1.  Open your **Driving Mode URL** on your phone.
-2.  You will see the first word and a single, large **`▶️ START DRIVING LOOP`** button.
-3.  **Tap this button once.**
-4.  The app will immediately speak the challenge, begin the 10-second countdown, speak the answer, and then **automatically load the next word and continue the loop without any further interaction.**
-
-**Confirm once you have tested the "One-Tap Start" and the automatic loop is functioning correctly!**
-
----
-PROVENANCE WORD: RESUME
