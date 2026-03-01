@@ -13,21 +13,27 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🚗", layout="centered")
 
-# --- CUSTOM "FAT-FINGER" CSS ---
+# --- CUSTOM "CAR-SPEC" CSS ---
 st.markdown("""
     <style>
-    /* Make the Start Button Massive */
+    /* Main Start Button */
     div.stButton > button:first-child {
-        height: 5em; width: 100%; font-size: 28px !important;
-        font-weight: bold; border-radius: 20px; border: 3px solid #1E90FF; margin-top: 30px;
+        height: 4em !important;
+        width: 100% !important;
+        font-size: 28px !important;
+        font-weight: bold !important;
+        background-color: #FF4B4B !important;
+        color: white !important;
+        border-radius: 15px !important;
     }
-    /* Make Multi-select text larger for mobile */
-    .stMultiSelect div div div div {
-        font-size: 22px !important;
-        padding: 10px !important;
+    /* Tier Toggle Buttons */
+    .stButton > button {
+        border-radius: 10px;
+        height: 3em;
+        font-weight: bold;
     }
-    /* Increase label size */
-    label { font-size: 24px !important; font-weight: bold !important; }
+    /* Label Styling */
+    .stMarkdown h3 { font-size: 22px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -46,7 +52,7 @@ def init_engines():
 
 client, drive_service = init_engines()
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def load_data():
     if not drive_service: return None
     try:
@@ -104,39 +110,59 @@ df_master = load_data()
 if df_master is not None:
     st.title("🚗 COGLI Vocab")
     
+    # Initialize Session States
     if 'loop_running' not in st.session_state:
         st.session_state.loop_running = False
         st.session_state.welcome_played = False
+    if 'selected_tiers' not in st.session_state:
+        st.session_state.selected_tiers = [2] # Default to Tier 2
 
     # --- START SCREEN ---
     if not st.session_state.loop_running:
         st.subheader("Select Training Tiers")
         
-        # Mapping for the Multi-Select
-        tier_map = {
-            "Tier 1: Maintenance": 1,
-            "Tier 2: Advanced": 2,
-            "Tier 3: Specialized": 3
-        }
+        # Horizontal Toggle Buttons
+        col1, col2, col3 = st.columns(3)
         
-        selected_tiers = st.multiselect(
-            "Tap to add/remove tiers:",
-            options=list(tier_map.keys()),
-            default=["Tier 2: Advanced"]
-        )
+        with col1:
+            m_label = "✅ Tier 1" if 1 in st.session_state.selected_tiers else "Tier 1"
+            if st.button(m_label, key="t1"):
+                if 1 in st.session_state.selected_tiers:
+                    st.session_state.selected_tiers.remove(1)
+                else:
+                    st.session_state.selected_tiers.append(1)
+                st.rerun()
         
-        # Convert labels back to numbers for filtering
-        selected_values = [tier_map[t] for t in selected_tiers]
-        
+        with col2:
+            a_label = "✅ Tier 2" if 2 in st.session_state.selected_tiers else "Tier 2"
+            if st.button(a_label, key="t2"):
+                if 2 in st.session_state.selected_tiers:
+                    st.session_state.selected_tiers.remove(2)
+                else:
+                    st.session_state.selected_tiers.append(2)
+                st.rerun()
+                
+        with col3:
+            s_label = "✅ Tier 3" if 3 in st.session_state.selected_tiers else "Tier 3"
+            if st.button(s_label, key="t3"):
+                if 3 in st.session_state.selected_tiers:
+                    st.session_state.selected_tiers.remove(3)
+                else:
+                    st.session_state.selected_tiers.append(3)
+                st.rerun()
+
+        st.caption("1: Maintenance | 2: Advanced | 3: Specialized")
+
+        # Filter Logic
         if 'Level' in df_master.columns:
-            df_filtered = df_master[df_master['Level'].astype(float).isin(selected_values)]
+            df_filtered = df_master[df_master['Level'].astype(float).isin(st.session_state.selected_tiers)]
         else:
-            st.warning("⚠️ 'Level' column not found. Defaulting to all words.")
+            st.error("⚠️ Column 'Level' not found in your Google Sheet.")
             df_filtered = df_master
 
         st.divider()
-        if st.button("▶️ START VOCAB QUIZ", type="primary"):
-            if not selected_tiers:
+        if st.button("▶️ START VOCAB QUIZ"):
+            if not st.session_state.selected_tiers:
                 st.error("Please select at least one tier!")
             else:
                 st.session_state.df = df_filtered
