@@ -13,35 +13,35 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🚗", layout="centered")
 
-# --- CUSTOM "IUI" CSS (WIDE & SHORT BUTTONS) ---
+# --- CUSTOM "IUI" CSS (COLOR & GEOMETRY) ---
 st.markdown("""
     <style>
-    /* Force buttons to be wide and short */
+    /* The Word - Bold Blue */
+    .blue-word {
+        color: #1E90FF;
+        font-size: 42px;
+        font-weight: bold;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+    }
+    /* Wide & Short Buttons */
     .stButton > button {
         width: 100% !important;
-        height: 2.5em !important; /* Shorter height */
-        padding: 0px !important;
+        height: 3em !important;
         font-size: 18px !important;
         font-weight: bold !important;
         border-radius: 10px !important;
         border: 2px solid #444 !important;
-        white-space: nowrap;
-        overflow: hidden;
     }
-    /* Highlight selected Tiers in Blue */
-    .stButton > button:active, .stButton > button:focus {
-        border-color: #1E90FF !important;
-    }
-    /* Start Button - Red and Wide */
+    /* Start Button - Red */
     div.stButton > button[kind="primary"] {
         background-color: #FF4B4B !important;
         color: white !important;
         border: none !important;
-        height: 3em !important;
-        font-size: 22px !important;
+        height: 3.5em !important;
     }
     /* Spacing */
-    .block-container { padding-top: 1rem !important; }
+    .block-container { padding-top: 1.5rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -51,7 +51,8 @@ def init_engines():
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         creds_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
         creds = service_account.Credentials.from_service_account_info(creds_info)
         drive_service = build('drive', 'v3', credentials=creds)
         return client, drive_service
@@ -86,12 +87,10 @@ def get_audio_html(text):
     except: return ""
 
 def generate_word_bundle(df, is_first=False):
-    # RESILIENCE FIX: Use column index instead of name to avoid KeyError
     row = df.iloc[random.randint(0, len(df)-1)]
-    word = str(row.iloc[0]) # First column
-    correct_def = str(row.iloc[1]) # Second column
+    word = str(row.iloc[0]) # Column 1
+    correct_def = str(row.iloc[1]) # Column 2
     
-    # Try to find Nuance by name, otherwise default
     nuance_text = ""
     if 'Nuance' in df.columns:
         raw_n = str(row['Nuance']).strip()
@@ -133,7 +132,6 @@ if df_master is not None:
     # --- START SCREEN ---
     if not st.session_state.loop_running:
         st.write("### Select Training Tiers")
-        
         t_col1, t_col2, t_col3 = st.columns(3)
         
         with t_col1:
@@ -142,14 +140,12 @@ if df_master is not None:
                 if 1 in st.session_state.selected_tiers: st.session_state.selected_tiers.remove(1)
                 else: st.session_state.selected_tiers.append(1)
                 st.rerun()
-        
         with t_col2:
             a_btn = "✅ Adv." if 2 in st.session_state.selected_tiers else "Adv."
             if st.button(a_btn, use_container_width=True):
                 if 2 in st.session_state.selected_tiers: st.session_state.selected_tiers.remove(2)
                 else: st.session_state.selected_tiers.append(2)
                 st.rerun()
-                
         with t_col3:
             s_btn = "✅ Spec." if 3 in st.session_state.selected_tiers else "Spec."
             if st.button(s_btn, use_container_width=True):
@@ -157,20 +153,20 @@ if df_master is not None:
                 else: st.session_state.selected_tiers.append(3)
                 st.rerun()
 
-        # Filter Logic
         if 'Level' in df_master.columns:
             df_filtered = df_master[df_master['Level'].astype(float).isin(st.session_state.selected_tiers)]
         else:
-            st.error("⚠️ Column 'Level' not found in Sheet.")
+            st.error("⚠️ Column 'Level' not found.")
             df_filtered = df_master
 
-        st.write("") 
         if st.button("▶️ START VOCAB QUIZ", type="primary"):
             if not st.session_state.selected_tiers:
                 st.error("Please select at least one tier!")
             else:
+                with st.spinner("Pre-loading Audio..."):
+                    st.session_state.welcome_audio = get_audio_html("Welcome to the COGLI Vocab Quiz.")
+                    st.session_state.current_bundle = generate_word_bundle(df_filtered, is_first=True)
                 st.session_state.df = df_filtered
-                st.session_state.current_bundle = generate_word_bundle(df_filtered, is_first=True)
                 st.session_state.loop_running = True
                 st.rerun()
 
@@ -182,16 +178,18 @@ if df_master is not None:
         audio_spot = st.empty()
         
         if not st.session_state.welcome_played:
-            audio_spot.markdown(get_audio_html("Welcome to the COGLI Vocab Quiz."), unsafe_allow_html=True)
+            audio_spot.markdown(st.session_state.welcome_audio, unsafe_allow_html=True)
             time.sleep(3.0) 
             st.session_state.welcome_played = True
             
         bundle = st.session_state.current_bundle
-        header_spot.markdown(f"### **Word:** {bundle['word'].upper()}")
+        header_spot.markdown(f"<div class='blue-word'>{bundle['word']}</div>", unsafe_allow_html=True)
         content_spot.markdown(f"**A:**   {bundle['opts'][0]}\n\n**B:**   {bundle['opts'][1]}\n\n**C:**   {bundle['opts'][2]}")
-        audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
         
+        audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
         start_time = time.time()
+        
+        # PRE-FETCH NEXT WORD IN BACKGROUND
         st.session_state.next_bundle = generate_word_bundle(st.session_state.df, is_first=False)
         
         speech_wait = (len(bundle['challenge_text'].split()) / 2.3)
