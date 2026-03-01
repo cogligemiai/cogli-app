@@ -13,7 +13,7 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 TARGET_FILENAME = "VOCAB_COGLI_MASTER_CLEAN_v1.2.csv"
 
-st.set_page_config(page_title="COGLI Driving Mode", layout="centered")
+st.set_page_config(page_title="COGLI Driving Dashboard", layout="centered")
 
 # --- ENGINES ---
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -30,7 +30,7 @@ def get_drive_service():
         st.error(f"Auth Error: {e}")
         return None
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def load_data():
     service = get_drive_service()
     if not service: return None
@@ -51,7 +51,6 @@ def load_data():
     return pd.read_csv(fh)
 
 def speak(text):
-    """Converts text to speech and injects an auto-playing audio tag."""
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
@@ -64,39 +63,62 @@ def speak(text):
 df = load_data()
 
 if df is not None:
-    st.title("🚗 COGLI Driving Mode")
+    st.title("🚗 COGLI Driving Dashboard")
     
+    # Initialize session state for word and options
     if 'current_index' not in st.session_state:
         st.session_state.current_index = random.randint(0, len(df)-1)
-    
+        st.session_state.options = []
+
     row = df.iloc[st.session_state.current_index]
     word = row['Word']
-    definition = row['Definition']
-    nuance = row.get('Nuance', 'No nuance provided.')
+    correct_def = row['Definition']
 
-    st.subheader(f"Word: :blue[{word}]")
-    st.write(f"**Definition:** {definition}")
+    # Generate A, B, C options if not already set
+    if not st.session_state.options:
+        others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
+        opts = [correct_def] + others
+        random.shuffle(opts)
+        st.session_state.options = opts
+
+    # --- HIGH VISIBILITY DISPLAY ---
+    st.markdown(f"<h1 style='text-align: center; color: #1E90FF;'>{word.upper()}</h1>", unsafe_allow_html=True)
     
-    # --- AUTO-ADVANCE LOGIC ---
+    st.write(f"**A:** {st.session_state.options[0]}")
+    st.write(f"**B:** {st.session_state.options[1]}")
+    st.write(f"**C:** {st.session_state.options[2]}")
+
     st.divider()
-    auto_mode = st.toggle("🚀 ENABLE AUTO-ADVANCE (Driving Mode)")
+    
+    # --- DRIVING LOOP ---
+    auto_mode = st.toggle("🚀 START AUTO-LOOP (Hands-Free)")
 
     if auto_mode:
-        st.warning("Auto-Advance Active. App will speak and move to next word every 15 seconds.")
-        speak(f"The word is {word}. Definition: {definition}. Nuance: {nuance}.")
-        time.sleep(15) # Wait 15 seconds for the user to process
+        st.warning("Auto-Loop Active. Moving to next word in 15 seconds...")
+        
+        # Construct the A, B, C script
+        script = f"The word is {word}. "
+        script += f"Option A: {st.session_state.options[0]}. "
+        script += f"Option B: {st.session_state.options[1]}. "
+        script += f"Option C: {st.session_state.options[2]}."
+        
+        speak(script)
+        
+        time.sleep(15)
+        
+        # Reset for next word
         st.session_state.current_index = random.randint(0, len(df)-1)
+        st.session_state.options = []
         st.rerun()
     else:
-        if st.button("🔊 Speak Current Word"):
-            speak(f"The word is {word}. Definition: {definition}. Nuance: {nuance}.")
+        if st.button("🔊 Read Options"):
+            script = f"The word is {word}. Option A: {st.session_state.options[0]}. Option B: {st.session_state.options[1]}. Option C: {st.session_state.options[2]}."
+            speak(script)
         
         if st.button("Next Word ➡️"):
             st.session_state.current_index = random.randint(0, len(df)-1)
+            st.session_state.options = []
             st.rerun()
-
-    st.divider()
-    st.caption("COGLI Protocol: Use 'Auto-Advance' for hands-free reinforcement while driving.")
 
 else:
     st.warning("Connecting to COGLI Data...")
