@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="COGLI Car Vocab Quiz", page_icon="🚘", layout="centered")
+st.set_page_config(page_title="COGLI Car Vocab quiz", page_icon="🚘", layout="centered")
 
 # --- ENGINES (Cached) ---
 @st.cache_resource
@@ -34,7 +34,7 @@ def load_data():
     if not drive_service: return None
     try:
         results = drive_service.files().list(q="name contains 'VOCAB_COGLI_MASTER_CLEAN'", fields="files(id, name, mimeType)").execute()
-        items = results.get('files', [])
+        items = results.get('files',[])
         if not items: return None
         target = items[0]
         request = drive_service.files().get_media(fileId=target['id']) if target['mimeType'] != 'application/vnd.google-apps.spreadsheet' else drive_service.files().export_media(fileId=target['id'], mimeType='text/csv')
@@ -59,85 +59,3 @@ def get_audio_html(text):
         return ""
 
 # --- APP UI ---
-if not client or not drive_service:
-    st.error("Credentials Error: Check Secrets.")
-    st.stop()
-
-df = load_data()
-
-if df is not None:
-    st.title("🚘 COGLI Car Vocab Quiz")
-
-    # Layout Containers
-    header_spot = st.empty()
-    content_spot = st.empty()
-    status_spot = st.empty()
-    audio_spot = st.empty() 
-    
-    # START BUTTON
-    if 'loop_running' not in st.session_state:
-        st.session_state.loop_running = False
-
-    if not st.session_state.loop_running:
-        st.info("Tap start. App will cycle continuously.")
-        if st.button("▶️ START VOCAB QUIZ", type="primary"):
-            st.session_state.loop_running = True
-            st.rerun()
-
-    # THE CONTINUOUS LOOP
-    if st.session_state.loop_running:
-        while True:
-            # --- 1. SETUP WORD & NUANCE FILTER ---
-            row = df.iloc[random.randint(0, len(df)-1)]
-            word = row['Word']
-            correct_def = row['Definition']
-            
-            # Clean the nuance data
-            raw_nuance = str(row.get('Nuance', '')).strip()
-            if raw_nuance.lower() in['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
-                nuance_text = ""
-            else:
-                nuance_text = f" Nuance: {raw_nuance}"
-            
-            others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
-            opts = [correct_def] + others
-            random.shuffle(opts)
-            correct_letter = chr(65 + opts.index(correct_def))
-
-            # --- 2. PRE-FETCH ALL AUDIO ---
-            challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
-            answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
-            
-            challenge_audio = get_audio_html(challenge_text)
-            resolution_audio = get_audio_html(answer_text)
-
-            # --- 3. PHASE A: THE CHALLENGE ---
-            header_spot.markdown(f"### **Word:** {word.upper()}")
-            content_spot.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
-            
-            # Play Challenge Audio
-            audio_spot.empty()
-            time.sleep(0.1) 
-            audio_spot.markdown(challenge_audio, unsafe_allow_html=True)
-            status_spot.info("Speaking Challenge...")
-            
-            # Wait exactly the estimated time for the speech to finish (approx 2.4 words/sec)
-            est_speech_time = int(len(challenge_text.split()) / 2.4)
-            time.sleep(est_speech_time)
-            
-            # NO COUNTDOWN. IMMEDIATE RESOLUTION.
-
-            # --- 4. PHASE B: THE RESOLUTION ---
-            status_spot.success(f"Answer: {correct_letter}")
-            audio_spot.empty()
-            time.sleep(0.1)
-            audio_spot.markdown(resolution_audio, unsafe_allow_html=True)
-            
-            # Wait for resolution speech ONLY
-            est_res_time = int(len(answer_text.split()) / 2.4)
-            time.sleep(est_res_time)
-            
-            # Loop automatically repeats instantly to the next word
-
-else:
-    st.warning("Connecting to COGLI Data...")
