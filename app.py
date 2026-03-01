@@ -48,7 +48,6 @@ def load_data():
         return None
 
 def get_audio_html(text):
-    """Generates the HTML for the audio player."""
     if not client: return ""
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
@@ -59,3 +58,85 @@ def get_audio_html(text):
         return ""
 
 # --- APP UI ---
+if not client or not drive_service:
+    st.error("Credentials Error: Check Secrets.")
+    st.stop()
+
+df = load_data()
+
+if df is not None:
+    st.title("🚘 COGLI Car Vocab quiz")
+    
+    # 1. LOOP STATE MANAGER
+    if 'loop_running' not in st.session_state:
+        st.session_state.loop_running = False
+
+    if not st.session_state.loop_running:
+        st.info("Tap start. App will cycle continuously.")
+        if st.button("▶️ START VOCAB QUIZ", type="primary"):
+            st.session_state.loop_running = True
+            st.rerun()
+
+    # 2. THE RERUN LOOP
+    if st.session_state.loop_running:
+        # --- SETUP WORD & NUANCE ---
+        row = df.iloc[random.randint(0, len(df)-1)]
+        word = row['Word']
+        correct_def = row['Definition']
+        
+        raw_nuance = str(row.get('Nuance', '')).strip()
+        if raw_nuance.lower() in['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
+            nuance_text = ""
+        else:
+            nuance_text = f" Nuance: {raw_nuance}"
+            
+        others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
+        opts = [correct_def] + others
+        random.shuffle(opts)
+        correct_letter = chr(65 + opts.index(correct_def))
+
+        # --- INSTANT VISUALS ---
+        # The text appears immediately before any audio is generated
+        st.markdown(f"### **Word:** {word.upper()}")
+        st.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
+        
+        audio_spot = st.empty()
+        status_spot = st.empty()
+
+        # --- PHASE A: THE CHALLENGE ---
+        challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
+        status_spot.info("Generating Audio...")
+        
+        challenge_audio = get_audio_html(challenge_text)
+        status_spot.info("Speaking Challenge...")
+        audio_spot.markdown(challenge_audio, unsafe_allow_html=True)
+        
+        # Calculate speech time (aggressive tracking)
+        est_speech_time = (len(challenge_text.split()) / 2.7) 
+        time.sleep(est_speech_time)
+        
+        # EXACT 2-SECOND PAUSE
+        for i in range(2, 0, -1):
+            status_spot.warning(f"YOUR TURN ({i}s)")
+            time.sleep(1)
+
+        # --- PHASE B: THE RESOLUTION ---
+        status_spot.success(f"Answer: {correct_letter}")
+        
+        answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
+        answer_audio = get_audio_html(answer_text)
+        
+        # Clear old audio, inject new audio
+        audio_spot.empty()
+        time.sleep(0.1)
+        audio_spot.markdown(answer_audio, unsafe_allow_html=True)
+        
+        # 50% LESS DEAD AIR: Aggressive cutoff timer
+        est_res_time = (len(answer_text.split()) / 3.0) 
+        time.sleep(est_res_time)
+        
+        # INSTANTLY RESTART THE PAGE (Fixes the black screen)
+        st.rerun()
+
+else:
+    st.warning("Connecting to COGLI Data...")
