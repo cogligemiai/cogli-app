@@ -57,7 +57,7 @@ def get_audio_html(text):
     except:
         return ""
 
-def generate_word_bundle(df):
+def generate_word_bundle(df, is_first=False):
     """Creates a bundle with pre-fetched audio and formatted text."""
     row = df.iloc[random.randint(0, len(df)-1)]
     word = row['Word']
@@ -74,8 +74,10 @@ def generate_word_bundle(df):
     random.shuffle(opts)
     correct_letter = chr(65 + opts.index(correct_def))
 
-    # Changed "The word is" to "Next word"
-    challenge_text = f"Next word. {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
+    # Logic for First word vs Next word
+    prefix = "First word" if is_first else "Next word"
+    
+    challenge_text = f"{prefix}. {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
     answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
 
     return {
@@ -105,7 +107,8 @@ if df is not None:
     if 'current_bundle' not in st.session_state:
         with st.spinner("Pre-loading COGLI Engine..."):
             st.session_state.welcome_audio = get_audio_html("Welcome to the COGLI Vocab Quiz.")
-            st.session_state.current_bundle = generate_word_bundle(df)
+            # Set is_first=True for the initial bundle
+            st.session_state.current_bundle = generate_word_bundle(df, is_first=True)
 
     if not st.session_state.loop_running:
         st.info("System Ready. Tap below to start your loop.")
@@ -129,21 +132,23 @@ if df is not None:
 
         # --- PHASE A: THE CHALLENGE ---
         header_spot.markdown(f"### **Word:** {bundle['word'].upper()}")
-        # Added triple spaces after the colons
+        # Triple spaces for maximum visual separation
         content_spot.markdown(f"**A:**   {bundle['opts'][0]}\n\n**B:**   {bundle['opts'][1]}\n\n**C:**   {bundle['opts'][2]}")
         
         time.sleep(0.05) 
         audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
         
         start_time = time.time()
-        est_speech_time = (len(bundle['challenge_text'].split()) / 2.7) 
+        # Conservative divisor (2.3) ensures long 'Option C' definitions finish speaking
+        est_speech_time = (len(bundle['challenge_text'].split()) / 2.3) 
         
-        # Prefetch Word #2
-        st.session_state.next_bundle = generate_word_bundle(df)
+        # Prefetch Word #2 in background (Set is_first=False)
+        st.session_state.next_bundle = generate_word_bundle(df, is_first=False)
         
         elapsed_time = time.time() - start_time
         remaining_speech_time = est_speech_time - elapsed_time
         
+        # Wait for speech to finish + hard 2.0s buffer
         if remaining_speech_time > 0:
             time.sleep(remaining_speech_time + 2.0)
         else:
@@ -155,7 +160,8 @@ if df is not None:
         time.sleep(0.1)
         audio_spot.markdown(bundle['answer_audio'], unsafe_allow_html=True)
         
-        est_res_time = (len(bundle['answer_text'].split()) / 2.7) 
+        # Conservative divisor for answer timing as well
+        est_res_time = (len(bundle['answer_text'].split()) / 2.3) 
         time.sleep(est_res_time + 2.0)
         
         # Swap and rerun
