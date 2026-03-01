@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="COGLI Car Vocab quiz", page_icon="🚘", layout="centered")
+st.set_page_config(page_title="COGLI Car Vocab Quiz", page_icon="🚘", layout="centered")
 
 # --- ENGINES (Cached) ---
 @st.cache_resource
@@ -51,10 +51,8 @@ def get_audio_html(text):
     """Generates the HTML for the audio player."""
     if not client: return ""
     try:
-        # tts-1 is the low-latency model optimized for speed
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
-        # Random ID forces browser to treat this as a new audio event every time
         rnd_id = random.randint(1000, 9999)
         return f'<audio id="audio-{rnd_id}" autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
     except:
@@ -68,7 +66,7 @@ if not client or not drive_service:
 df = load_data()
 
 if df is not None:
-    st.title("🚘 COGLI Car Vocab quiz")
+    st.title("🚘 COGLI Car Vocab Quiz")
 
     # Layout Containers
     header_spot = st.empty()
@@ -89,29 +87,39 @@ if df is not None:
     # THE CONTINUOUS LOOP
     if st.session_state.loop_running:
         while True:
-            # --- 1. SETUP WORD ---
+            # --- 1. SETUP WORD & NUANCE FILTER ---
             row = df.iloc[random.randint(0, len(df)-1)]
-            word, correct_def, nuance = row['Word'], row['Definition'], row.get('Nuance', 'No nuance provided.')
+            word = row['Word']
+            correct_def = row['Definition']
+            
+            # Clean the nuance data
+            raw_nuance = str(row.get('Nuance', '')).strip()
+            if raw_nuance.lower() in['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
+                nuance_text = ""
+            else:
+                nuance_text = f" Nuance: {raw_nuance}"
             
             others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
             opts = [correct_def] + others
             random.shuffle(opts)
             correct_letter = chr(65 + opts.index(correct_def))
 
-            # --- 2. PHASE A: THE CHALLENGE ---
-            # VISUALS FIRST (Instant Feedback)
+            # --- 2. PRE-FETCH ALL AUDIO (The Sync Fix) ---
+            status_spot.info("Loading next word...")
+            challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
+            answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
+            
+            challenge_audio = get_audio_html(challenge_text)
+            resolution_audio = get_audio_html(answer_text)
+
+            # --- 3. PHASE A: THE CHALLENGE ---
             header_spot.markdown(f"### **Word:** {word.upper()}")
             content_spot.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
-            status_spot.info("Generating Audio...") 
             
-            # AUDIO GENERATION
-            audio_spot.empty() # Clear old player
-            challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
-            audio_html = get_audio_html(challenge_text)
-            
-            # PLAY AUDIO
-            status_spot.info("Speaking Challenge...")
-            audio_spot.markdown(audio_html, unsafe_allow_html=True)
+            # Play Challenge Audio
+            audio_spot.empty()
+            time.sleep(0.1) 
+            audio_spot.markdown(challenge_audio, unsafe_allow_html=True)
             
             # Wait for speech (approx 2.4 words/sec)
             est_speech_time = int(len(challenge_text.split()) / 2.4)
@@ -122,18 +130,14 @@ if df is not None:
                 status_spot.warning(f"YOUR TURN ({i}s)")
                 time.sleep(1)
 
-            # --- 3. PHASE B: THE RESOLUTION ---
+            # --- 4. PHASE B: THE RESOLUTION ---
+            # Visual and Audio fire at the exact same millisecond
             status_spot.success(f"Answer: {correct_letter}")
-            
-            # AUDIO GENERATION
             audio_spot.empty()
-            answer_text = f"The correct answer is {correct_letter}. {correct_def}. Nuance: {nuance}."
-            audio_html = get_audio_html(answer_text)
+            time.sleep(0.1)
+            audio_spot.markdown(resolution_audio, unsafe_allow_html=True)
             
-            # PLAY AUDIO
-            audio_spot.markdown(audio_html, unsafe_allow_html=True)
-            
-            # Wait for resolution speech ONLY (No extra buffer)
+            # Wait for resolution speech ONLY
             est_res_time = int(len(answer_text.split()) / 2.4)
             time.sleep(est_res_time)
             
