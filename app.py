@@ -13,18 +13,31 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🚗", layout="centered")
 
+# --- CUSTOM CAR-SPEC UI ---
+st.markdown("""
+    <style>
+    div.stButton > button:first-child {
+        height: 5em; width: 100%; font-size: 24px !important;
+        font-weight: bold; border-radius: 20px; border: 2px solid #1E90FF; margin-top: 20px;
+    }
+    .stMultiSelect [data-baseweb="tag"] {
+        background-color: #1E90FF !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- ENGINES ---
 @st.cache_resource
 def init_engines():
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         creds_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
         creds = service_account.Credentials.from_service_account_info(creds_info)
         drive_service = build('drive', 'v3', credentials=creds)
         return client, drive_service
-    except:
-        return None, None
+    except: return None, None
 
 client, drive_service = init_engines()
 
@@ -43,8 +56,7 @@ def load_data():
         while not done: status, done = downloader.next_chunk()
         fh.seek(0)
         return pd.read_csv(fh)
-    except:
-        return None
+    except: return None
 
 def get_audio_html(text):
     if not client: return ""
@@ -53,16 +65,15 @@ def get_audio_html(text):
         b64 = base64.b64encode(response.content).decode()
         rnd_id = random.randint(1000, 99999)
         return f'<audio id="audio-{rnd_id}" autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
-    except:
-        return ""
+    except: return ""
 
 def generate_word_bundle(df, is_first=False):
     row = df.iloc[random.randint(0, len(df)-1)]
     word, correct_def = row['Word'], row['Definition']
     raw_nuance = str(row.get('Nuance', '')).strip()
-    nuance_text = "" if raw_nuance.lower() in ['', 'nan', 'none', 'no nuance provided', 'no nuance provided.'] else f" {raw_nuance}"
+    nuance_text = "" if raw_nuance.lower() in ['', 'nan', 'none', 'no nuance provided.'] else f" {raw_nuance}"
     
-    others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
+    others = df[df['Definition'] != correct_def]['Definition'].sample(min(2, len(df)-1)).tolist()
     opts = [correct_def] + others
     random.shuffle(opts)
     correct_letter = chr(65 + opts.index(correct_def))
@@ -94,27 +105,33 @@ if df_master is not None:
 
     # --- START SCREEN ---
     if not st.session_state.loop_running:
-        st.subheader("Select Training Track")
+        st.subheader("Select Training Tiers")
         
-        # Track Selection
-        track = st.radio("Choose your path:", ["All Words", "Core Words (Advanced)"])
+        # MULTI-SELECT UI
+        tier_options = {
+            "Tier 1: Maintenance": 1,
+            "Tier 2: Advanced": 2,
+            "Tier 3: Specialized": 3
+        }
+        selected_labels = st.multiselect("Choose one or more tiers:", list(tier_options.keys()), default=["Tier 2: Advanced"])
+        selected_values = [tier_options[label] for label in selected_labels]
         
-        if track == "Core Words (Advanced)":
-            if 'Level' in df_master.columns:
-                df_filtered = df_master[df_master['Level'].str.contains('Core|Advanced|GRE|LSAT|MCAT', case=False, na=False)]
-            else:
-                st.warning("No 'Level' column found in Sheet. Defaulting to all words.")
-                df_filtered = df_master
+        if 'Level' in df_master.columns:
+            # Filter based on selected numeric values
+            df_filtered = df_master[df_master['Level'].astype(float).isin(selected_values)]
         else:
+            st.warning("⚠️ 'Level' column not found. Defaulting to all words.")
             df_filtered = df_master
 
         st.divider()
         if st.button("▶️ START VOCAB QUIZ", type="primary"):
-            st.session_state.df = df_filtered
-            # Set is_first=True for the first bundle
-            st.session_state.current_bundle = generate_word_bundle(df_filtered, is_first=True)
-            st.session_state.loop_running = True
-            st.rerun()
+            if not selected_labels:
+                st.error("Please select at least one tier.")
+            else:
+                st.session_state.df = df_filtered
+                st.session_state.current_bundle = generate_word_bundle(df_filtered, is_first=True)
+                st.session_state.loop_running = True
+                st.rerun()
 
     # --- THE ACTIVE LOOP ---
     if st.session_state.loop_running:
@@ -129,23 +146,19 @@ if df_master is not None:
             st.session_state.welcome_played = True
             
         bundle = st.session_state.current_bundle
-
         header_spot.markdown(f"### **Word:** {bundle['word'].upper()}")
-        # Triple Spacing for Clarity
         content_spot.markdown(f"**A:**   {bundle['opts'][0]}\n\n**B:**   {bundle['opts'][1]}\n\n**C:**   {bundle['opts'][2]}")
-        
         audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
-        start_time = time.time()
         
-        # Pre-fetch Word #2 in background
+        start_time = time.time()
         st.session_state.next_bundle = generate_word_bundle(st.session_state.df, is_first=False)
         
-        # Timing divisor 2.3 for the "Option C Gate"
         speech_wait = (len(bundle['challenge_text'].split()) / 2.3)
         time.sleep(max(0, speech_wait - (time.time() - start_time)) + 2.0)
 
-        # --- RESOLUTION ---
         status_spot.success(f"Answer: {bundle['correct_letter']}")
+        audio_spot.empty()
+        time.sleep(0.1)
         audio_spot.markdown(bundle['answer_audio'], unsafe_allow_html=True)
         
         res_wait = (len(bundle['answer_text'].split()) / 2.3)
