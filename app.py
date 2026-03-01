@@ -51,10 +51,14 @@ def load_data():
     return pd.read_csv(fh)
 
 def speak(text):
-    response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
-    b64 = base64.b64encode(response.content).decode()
-    md = f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
-    st.markdown(md, unsafe_allow_html=True)
+    """Converts text to speech and injects an auto-playing audio tag."""
+    try:
+        response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
+        b64 = base64.b64encode(response.content).decode()
+        md = f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
+        st.markdown(md, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Voice Error: {e}")
 
 # --- APP UI ---
 df = load_data()
@@ -71,8 +75,10 @@ if df is not None:
     nuance = row.get('Nuance', 'No nuance provided.')
 
     st.subheader(f"Word: :blue[{word}]")
+    st.write(f"**Definition:** {definition}")
     
     # --- AUTO-ADVANCE LOGIC ---
+    st.divider()
     auto_mode = st.toggle("🚀 ENABLE AUTO-ADVANCE (Driving Mode)")
 
     if auto_mode:
@@ -88,6 +94,9 @@ if df is not None:
         if st.button("Next Word ➡️"):
             st.session_state.current_index = random.randint(0, len(df)-1)
             st.rerun()
+
+    st.divider()
+    st.caption("COGLI Protocol: Use 'Auto-Advance' for hands-free reinforcement while driving.")
 
 else:
     st.warning("Connecting to COGLI Data...")
