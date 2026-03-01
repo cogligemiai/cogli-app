@@ -13,14 +13,13 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🚗", layout="centered")
 
-# --- ENGINES (Cached) ---
+# --- ENGINES ---
 @st.cache_resource
 def init_engines():
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         creds_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-        if "private_key" in creds_info:
-            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
         creds = service_account.Credentials.from_service_account_info(creds_info)
         drive_service = build('drive', 'v3', credentials=creds)
         return client, drive_service
@@ -29,7 +28,7 @@ def init_engines():
 
 client, drive_service = init_engines()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_data():
     if not drive_service: return None
     try:
@@ -58,34 +57,23 @@ def get_audio_html(text):
         return ""
 
 def generate_word_bundle(df, is_first=False):
-    """Creates a bundle with pre-fetched audio and formatted text."""
     row = df.iloc[random.randint(0, len(df)-1)]
-    word = row['Word']
-    correct_def = row['Definition']
-    
+    word, correct_def = row['Word'], row['Definition']
     raw_nuance = str(row.get('Nuance', '')).strip()
-    if raw_nuance.lower() in ['', 'nan', 'none', 'no nuance provided', 'no nuance provided.']:
-        nuance_text = ""
-    else:
-        nuance_text = f" {raw_nuance}"
-        
+    nuance_text = "" if raw_nuance.lower() in ['', 'nan', 'none', 'no nuance provided', 'no nuance provided.'] else f" {raw_nuance}"
+    
     others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
     opts = [correct_def] + others
     random.shuffle(opts)
     correct_letter = chr(65 + opts.index(correct_def))
 
-    # Logic for First word vs Next word
     prefix = "First word" if is_first else "Next word"
-    
     challenge_text = f"{prefix}. {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
     answer_text = f"The correct answer is {correct_letter}. {correct_def}.{nuance_text}"
 
     return {
-        'word': word,
-        'opts': opts,
-        'correct_letter': correct_letter,
-        'challenge_text': challenge_text,
-        'answer_text': answer_text,
+        'word': word, 'opts': opts, 'correct_letter': correct_letter,
+        'challenge_text': challenge_text, 'answer_text': answer_text,
         'challenge_audio': get_audio_html(challenge_text),
         'answer_audio': get_audio_html(answer_text)
     }
@@ -95,27 +83,40 @@ if not client or not drive_service:
     st.error("Credentials Error: Check Secrets.")
     st.stop()
 
-df = load_data()
+df_master = load_data()
 
-if df is not None:
+if df_master is not None:
     st.title("🚗 COGLI Vocab")
     
     if 'loop_running' not in st.session_state:
         st.session_state.loop_running = False
         st.session_state.welcome_played = False
-        
-    if 'current_bundle' not in st.session_state:
-        with st.spinner("Pre-loading COGLI Engine..."):
-            st.session_state.welcome_audio = get_audio_html("Welcome to the COGLI Vocab Quiz.")
-            # Set is_first=True for the initial bundle
-            st.session_state.current_bundle = generate_word_bundle(df, is_first=True)
 
+    # --- START SCREEN ---
     if not st.session_state.loop_running:
-        st.info("System Ready. Tap below to start your loop.")
+        st.subheader("Select Training Track")
+        
+        # Track Selection
+        track = st.radio("Choose your path:", ["All Words", "Core Words (Advanced)"])
+        
+        if track == "Core Words (Advanced)":
+            if 'Level' in df_master.columns:
+                df_filtered = df_master[df_master['Level'].str.contains('Core|Advanced|GRE|LSAT|MCAT', case=False, na=False)]
+            else:
+                st.warning("No 'Level' column found in Sheet. Defaulting to all words.")
+                df_filtered = df_master
+        else:
+            df_filtered = df_master
+
+        st.divider()
         if st.button("▶️ START VOCAB QUIZ", type="primary"):
+            st.session_state.df = df_filtered
+            # Set is_first=True for the first bundle
+            st.session_state.current_bundle = generate_word_bundle(df_filtered, is_first=True)
             st.session_state.loop_running = True
             st.rerun()
 
+    # --- THE ACTIVE LOOP ---
     if st.session_state.loop_running:
         header_spot = st.empty()
         content_spot = st.empty()
@@ -123,50 +124,34 @@ if df is not None:
         audio_spot = st.empty()
         
         if not st.session_state.welcome_played:
-            audio_spot.markdown(st.session_state.welcome_audio, unsafe_allow_html=True)
+            audio_spot.markdown(get_audio_html("Welcome to the COGLI Vocab Quiz."), unsafe_allow_html=True)
             time.sleep(3.0) 
             st.session_state.welcome_played = True
-            audio_spot.empty()
             
         bundle = st.session_state.current_bundle
 
-        # --- PHASE A: THE CHALLENGE ---
         header_spot.markdown(f"### **Word:** {bundle['word'].upper()}")
-        # Triple spaces for maximum visual separation
+        # Triple Spacing for Clarity
         content_spot.markdown(f"**A:**   {bundle['opts'][0]}\n\n**B:**   {bundle['opts'][1]}\n\n**C:**   {bundle['opts'][2]}")
         
-        time.sleep(0.05) 
         audio_spot.markdown(bundle['challenge_audio'], unsafe_allow_html=True)
-        
         start_time = time.time()
-        # Conservative divisor (2.3) ensures long 'Option C' definitions finish speaking
-        est_speech_time = (len(bundle['challenge_text'].split()) / 2.3) 
         
-        # Prefetch Word #2 in background (Set is_first=False)
-        st.session_state.next_bundle = generate_word_bundle(df, is_first=False)
+        # Pre-fetch Word #2 in background
+        st.session_state.next_bundle = generate_word_bundle(st.session_state.df, is_first=False)
         
-        elapsed_time = time.time() - start_time
-        remaining_speech_time = est_speech_time - elapsed_time
-        
-        # Wait for speech to finish + hard 2.0s buffer
-        if remaining_speech_time > 0:
-            time.sleep(remaining_speech_time + 2.0)
-        else:
-            time.sleep(2.0)
+        # Timing divisor 2.3 for the "Option C Gate"
+        speech_wait = (len(bundle['challenge_text'].split()) / 2.3)
+        time.sleep(max(0, speech_wait - (time.time() - start_time)) + 2.0)
 
-        # --- PHASE B: THE RESOLUTION ---
+        # --- RESOLUTION ---
         status_spot.success(f"Answer: {bundle['correct_letter']}")
-        audio_spot.empty()
-        time.sleep(0.1)
         audio_spot.markdown(bundle['answer_audio'], unsafe_allow_html=True)
         
-        # Conservative divisor for answer timing as well
-        est_res_time = (len(bundle['answer_text'].split()) / 2.3) 
-        time.sleep(est_res_time + 2.0)
+        res_wait = (len(bundle['answer_text'].split()) / 2.3)
+        time.sleep(res_wait + 2.0)
         
-        # Swap and rerun
         st.session_state.current_bundle = st.session_state.next_bundle
         st.rerun()
-
 else:
     st.warning("Connecting to COGLI Data...")
