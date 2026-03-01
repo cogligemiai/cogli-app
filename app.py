@@ -48,12 +48,14 @@ def load_data():
         return None
 
 def get_audio_html(text):
-    """Generates the HTML for the audio player without displaying it yet."""
+    """Generates the HTML for the audio player."""
     if not client: return ""
     try:
         response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
         b64 = base64.b64encode(response.content).decode()
-        return f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
+        # We use a random ID to force the browser to see it as a new element
+        rnd_id = random.randint(1000, 9999)
+        return f'<audio id="audio-{rnd_id}" autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
     except:
         return ""
 
@@ -67,10 +69,10 @@ df = load_data()
 if df is not None:
     st.title("🚘 COGLI Car Vocab")
 
-    # Containers for dynamic updates
+    # Layout Containers
     header_spot = st.empty()
     content_spot = st.empty()
-    timer_spot = st.empty()
+    status_spot = st.empty()
     audio_spot = st.empty() # The invisible audio player
     
     # START BUTTON
@@ -78,6 +80,7 @@ if df is not None:
         st.session_state.loop_running = False
 
     if not st.session_state.loop_running:
+        st.info("Tap start. App will cycle continuously.")
         if st.button("▶️ START CONTINUOUS LOOP", type="primary"):
             st.session_state.loop_running = True
             st.rerun()
@@ -85,47 +88,9 @@ if df is not None:
     # THE CONTINUOUS LOOP
     if st.session_state.loop_running:
         while True:
-            # 1. SETUP WORD
+            # --- 1. SETUP WORD ---
             row = df.iloc[random.randint(0, len(df)-1)]
             word, correct_def, nuance = row['Word'], row['Definition'], row.get('Nuance', 'No nuance provided.')
             
             others = df[df['Definition'] != correct_def]['Definition'].sample(2).tolist()
-            opts = [correct_def] + others
-            random.shuffle(opts)
-            correct_letter = chr(65 + opts.index(correct_def))
-
-            # 2. DISPLAY CHALLENGE
-            header_spot.markdown(f"### **Word:** {word.upper()}")
-            content_spot.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
-            
-            # 3. SPEAK CHALLENGE
-            challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
-            audio_html = get_audio_html(challenge_text)
-            audio_spot.markdown(audio_html, unsafe_allow_html=True)
-            
-            # 4. THINKING TIMER (Reduced to 8s)
-            est_speech_time = int(len(challenge_text.split()) / 2.3)
-            # Wait for speech to finish + 8 seconds thinking time
-            for i in range(est_speech_time + 8, 0, -1):
-                if i > 8:
-                    timer_spot.info(f"Speaking... ({i}s)")
-                else:
-                    timer_spot.warning(f"YOUR TURN: Answer Now! ({i}s)")
-                time.sleep(1)
-            
-            # 5. RESOLUTION
-            answer_text = f"The correct answer is {correct_letter}: {correct_def}. Nuance: {nuance}."
-            audio_html = get_audio_html(answer_text)
-            audio_spot.markdown(audio_html, unsafe_allow_html=True) # Replaces the old audio player
-            
-            content_spot.success(f"Answer: {correct_letter}")
-            timer_spot.empty()
-            
-            # 6. TRANSITION PAUSE
-            est_res_time = int(len(answer_text.split()) / 2.3) + 3
-            time.sleep(est_res_time)
-            
-            # Loop restarts automatically (while True)
-
-else:
-    st.warning("Connecting to COGLI Data...")
+            opts = [correct_def] + o
