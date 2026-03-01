@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="COGLI Car Vocab", page_icon="🚘", layout="centered")
+st.set_page_config(page_title="COGLI Car Vocab quiz", page_icon="🚘", layout="centered")
 
 # --- ENGINES (Cached) ---
 @st.cache_resource
@@ -68,7 +68,7 @@ if not client or not drive_service:
 df = load_data()
 
 if df is not None:
-    st.title("🚘 COGLI Car Vocab")
+    st.title("🚘 COGLI Car Vocab quiz")
 
     # Layout Containers
     header_spot = st.empty()
@@ -102,9 +102,9 @@ if df is not None:
             # VISUALS FIRST (Instant Feedback)
             header_spot.markdown(f"### **Word:** {word.upper()}")
             content_spot.markdown(f"**A:** {opts[0]}\n\n**B:** {opts[1]}\n\n**C:** {opts[2]}")
-            status_spot.info("Generating Audio...") # Let user know it's coming
+            status_spot.info("Generating Audio...") 
             
-            # AUDIO GENERATION (Happens while user reads)
+            # AUDIO GENERATION
             audio_spot.empty() # Clear old player
             challenge_text = f"The word is {word}. Option A: {opts[0]}. Option B: {opts[1]}. Option C: {opts[2]}."
             audio_html = get_audio_html(challenge_text)
@@ -113,12 +113,12 @@ if df is not None:
             status_spot.info("Speaking Challenge...")
             audio_spot.markdown(audio_html, unsafe_allow_html=True)
             
-            # Wait for speech (approx 2.4 words/sec) + 3 SECONDS THINKING
+            # Wait for speech (approx 2.4 words/sec)
             est_speech_time = int(len(challenge_text.split()) / 2.4)
             time.sleep(est_speech_time)
             
-            # Visual Countdown (3s)
-            for i in range(3, 0, -1):
+            # Visual Countdown (2s)
+            for i in range(2, 0, -1):
                 status_spot.warning(f"YOUR TURN ({i}s)")
                 time.sleep(1)
 
