@@ -11,10 +11,14 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CSS (ALIGNMENT & SYMMETRY) ---
+# --- CUSTOM CSS (SYMMETRY & ALIGNMENT) ---
 st.markdown("""
 <style>
-    /* 1. Symmetrical Input Box & Buttons */
+    /* 1. Header Styling */
+    .word-label { font-size: 24px; color: white; }
+    .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
+    
+    /* 2. Symmetrical Input Box & Buttons */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
@@ -29,21 +33,13 @@ st.markdown("""
         border-radius: 8px !important;
     }
 
-    /* 2. Hide the Technical Bridge Triggers */
-    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="bridge_storage"]) {
-        position: absolute !important;
-        opacity: 0 !important;
-        height: 0px !important;
-        pointer-events: none !important;
-    }
-    
     /* 3. Force Row Alignment */
     [data-testid="column"] {
         display: flex;
-        align-items: flex-end;
+        align-items: center;
     }
     
-    .detected-word { color: #28a745; font-weight: bold; font-family: monospace; }
+    .detected-word { color: #28a745; font-weight: bold; font-family: monospace; font-size: 24px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -84,7 +80,6 @@ df = load_data()
 # --- STATE MANAGEMENT ---
 if "active_word" not in st.session_state: st.session_state.active_word = ""
 if "active_def" not in st.session_state: st.session_state.active_def = None
-if "last_processed_audio" not in st.session_state: st.session_state.last_processed_audio = ""
 
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
@@ -100,76 +95,26 @@ st.button("▶ START VOCAB QUIZ", type="primary")
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 
-# 1. THE HIDDEN BRIDGE
-bridge_data = st.text_input("bridge_storage", key="bridge_storage", label_visibility="collapsed")
-
-# 2. THE INPUT ROW
-col1, col2 = st.columns(2)
+# --- THE UNIFIED INPUT ROW ---
+col1, col2 = st.columns([1.5, 1])
 
 with col1:
-    import streamlit.components.v1 as components
-    components.html("""
-    <div style="display: flex; justify-content: center;">
-        <button id="cogli-mic" style="width: 100%; height: 45px; font-size: 16px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase;">
-            🎤 Voice
-        </button>
-    </div>
-    <script>
-        const btn = document.getElementById('cogli-mic');
-        btn.onclick = async () => {
-            btn.innerText = "🔴 LISTENING...";
-            btn.style.backgroundColor = "#cc0000";
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const mediaRecorder = new MediaRecorder(stream);
-                const audioChunks = [];
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                mediaRecorder.onstop = () => {
-                    btn.innerText = "⏳ PROCESSING...";
-                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const reader = new FileReader();
-                    reader.readAsDataURL(blob);
-                    reader.onloadend = () => {
-                        const parentDoc = window.parent.document;
-                        const storage = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'bridge_storage');
-                        if (storage) {
-                            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            setter.call(storage, reader.result);
-                            storage.dispatchEvent(new Event('input', { bubbles: true }));
-                            storage.blur();
-                        }
-                    };
-                };
-                mediaRecorder.start();
-                setTimeout(() => { 
-                    mediaRecorder.stop(); 
-                    stream.getTracks().forEach(t => t.stop());
-                }, 3000); 
-            } catch (err) { btn.innerText = "❌ ERROR"; }
-        };
-    </script>
-    """, height=50)
+    # NATIVE VOICE INPUT: Bulletproof reliability
+    audio_data = st.audio_input("Record Word", label_visibility="collapsed")
+    if audio_data:
+        with st.spinner("⏳ TRANSCRIBING..."):
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_data)
+            new_word = transcript.text.strip().strip('.').upper()
+            if new_word != st.session_state.active_word:
+                st.session_state.active_word = new_word
+                st.session_state.active_def = None
 
 with col2:
+    # MANUAL TEXT ENTRY
     text_input = st.text_input("WORD_ENTRY", key="manual_entry", placeholder="TYPE WORD HERE...", label_visibility="collapsed")
     if text_input and text_input.upper() != st.session_state.active_word:
         st.session_state.active_word = text_input.upper()
         st.session_state.active_def = None
-
-# --- VOICE LOGIC ---
-if bridge_data and bridge_data != st.session_state.last_processed_audio:
-    st.session_state.last_processed_audio = bridge_data
-    with st.spinner("⏳ TRANSCRIBING..."):
-        try:
-            b64_data = bridge_data.split(",")[1]
-            audio_file = io.BytesIO(base64.b64decode(b64_data))
-            audio_file.name = "audio.webm"
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-            st.session_state.active_word = transcript.text.strip().strip('.').upper()
-            st.session_state.active_def = None
-            st.rerun()
-        except:
-            st.error("Voice failed.")
 
 # --- SHARED RESULTS AREA ---
 if st.session_state.active_word:
