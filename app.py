@@ -11,10 +11,13 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CUSTOM CSS (Active-Hidden Bridge & Precision Symmetry) ---
+# --- CUSTOM "IUI" CSS ---
 st.markdown("""
 <style>
-    /* 1. Symmetrical Input Box & Buttons */
+    .word-label { font-size: 24px; color: white; }
+    .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
+    
+    /* Symmetry for Ingest Console */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
@@ -27,20 +30,6 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: bold !important;
         border-radius: 8px !important;
-        text-transform: uppercase !important;
-    }
-
-    /* 2. The Active-Hidden Bridge (Invisible but functional) */
-    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="VOICE_DATA_LINK"]) {
-        position: absolute !important;
-        left: -5000px !important;
-    }
-    
-    /* 3. Force Columns to Align Bottom and stay same height */
-    [data-testid="column"] {
-        display: flex;
-        align-items: flex-end;
-        min-height: 45px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -82,12 +71,11 @@ df = load_data()
 # --- STATE MANAGEMENT ---
 if "ingest_word" not in st.session_state: st.session_state.ingest_word = ""
 if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
-if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
 
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# Tiers Selection
+# Quiz Section
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: st.checkbox("Maintenance", value=True)
@@ -98,84 +86,29 @@ st.button("▶ START VOCAB QUIZ", type="primary")
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 
-# 1. THE ACTIVE-HIDDEN BRIDGE (Targeted by JS)
-audio_b64 = st.text_input("VOICE_DATA_LINK", key="audio_b64", label_visibility="collapsed")
-
-# 2. THE DUAL-PURPOSE INPUT ROW
-col1, col2 = st.columns(2)
+# --- UNIFIED INGEST CONSOLE ---
+col1, col2 = st.columns([1.5, 1])
 
 with col1:
-    import streamlit.components.v1 as components
-    components.html("""
-    <div style="display: flex; justify-content: center;">
-        <button id="cogli-mic" style="width: 100%; height: 45px; font-size: 16px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase;">
-            🎤 Voice
-        </button>
-    </div>
-    <script>
-        const btn = document.getElementById('cogli-mic');
-        btn.onclick = async () => {
-            btn.innerText = "🔴 LISTENING...";
-            btn.style.backgroundColor = "#cc0000";
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const mediaRecorder = new MediaRecorder(stream);
-                const audioChunks = [];
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                mediaRecorder.onstop = () => {
-                    btn.innerText = "⏳ PROCESSING...";
-                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const reader = new FileReader();
-                    reader.readAsDataURL(blob);
-                    reader.onloadend = () => {
-                        const parentDoc = window.parent.document;
-                        // Use a specific selector for the hidden bridge
-                        const bridge = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'VOICE_DATA_LINK');
-                        
-                        if (bridge) {
-                            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            setter.call(bridge, reader.result);
-                            bridge.dispatchEvent(new Event('input', { bubbles: true }));
-                        }
-                        setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 2000);
-                    };
-                };
-                mediaRecorder.start();
-                setTimeout(() => { 
-                    mediaRecorder.stop(); 
-                    stream.getTracks().forEach(t => t.stop());
-                }, 3000); 
-            } catch (err) { btn.innerText = "❌ ERROR"; }
-        };
-    </script>
-    """, height=50)
-
-with col2:
-    # THE UNIFIED BOX: Where voice transcription lands or where you type manually.
-    word_box_input = st.text_input("WORD_ENTRY", value="", key="main_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
-    
-    # Check if a word was entered via text
-    if word_box_input and word_box_input.upper() != st.session_state.ingest_word:
-        st.session_state.ingest_word = word_box_input.upper()
-        st.session_state.ingest_def = None
-
-# 3. VOICE-TO-TEXT PROCESSING
-if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
-    st.session_state.last_audio_b64 = audio_b64
-    with st.spinner("Transcribing..."):
-        try:
-            b64_data = audio_b64.split(",")[1]
-            audio_file = io.BytesIO(base64.b64decode(b64_data))
-            audio_file.name = "audio.webm"
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+    # NATIVE VOICE RECORDER: Bulletproof stability.
+    audio_value = st.audio_input("Record your word", label_visibility="collapsed")
+    if audio_value:
+        with st.spinner("Transcribing..."):
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_value)
             st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
             st.session_state.ingest_def = None
-            st.rerun() 
-        except: pass
 
-# 4. RESULTS AREA
-if st.session_state.ingest_word != "":
+with col2:
+    # TEXT INPUT: For manual entry.
+    text_input = st.text_input("TYPE WORD", key="main_text_input", placeholder="OR TYPE HERE...", label_visibility="collapsed")
+    if text_input and text_input.upper() != st.session_state.ingest_word:
+        st.session_state.ingest_word = text_input.upper()
+        st.session_state.ingest_def = None
+
+# --- RESULTS & COMMIT ---
+if st.session_state.ingest_word:
     st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
+    
     if not st.session_state.ingest_def:
         with st.spinner("Defining..."):
             response = client.chat.completions.create(
@@ -185,8 +118,8 @@ if st.session_state.ingest_word != "":
                           {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}]
             )
             st.session_state.ingest_def = response.choices[0].message.content
-    
+
     st.info(st.session_state.ingest_def)
     
-    if st.button("COMMIT WORD TO VOCABULARY DATABASE", type="secondary", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Ready for final Drive Write-back.")
+    if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
+        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic ready.")
