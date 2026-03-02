@@ -11,14 +11,10 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CUSTOM CSS (Precision Alignment & Symmetrical UI) ---
+# --- CSS (ULTRA-SYMMETRY & HIDDEN TRIGGERS) ---
 st.markdown("""
 <style>
-    /* 1. Header Styling */
-    .word-label { font-size: 24px; color: white; }
-    .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
-    
-    /* 2. Symmetrical Ingest Console Alignment */
+    /* 1. Symmetrical Input Box & Buttons */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
@@ -27,21 +23,23 @@ st.markdown("""
     
     .stButton > button {
         width: 100% !important;
-        height: 45px !important; /* Matches Input Box */
+        height: 45px !important;
         font-size: 16px !important;
         font-weight: bold !important;
         border-radius: 8px !important;
         text-transform: uppercase !important;
     }
 
-    /* 3. The Active-Hidden Bridge (Invisible but functional) */
-    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
-        position: absolute !important;
-        opacity: 0 !important;
-        height: 0 !important;
-        width: 0 !important;
-        overflow: hidden !important;
-        pointer-events: none !important;
+    /* 2. Hide the Technical Bridge Triggers */
+    div:has(> input[aria-label="bridge_storage"]),
+    div:has(> button[aria-label="bridge_click"]) {
+        display: none !important;
+    }
+    
+    /* 3. Force Row Alignment */
+    [data-testid="column"] {
+        display: flex;
+        align-items: flex-end;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -80,15 +78,14 @@ def load_data():
 
 df = load_data()
 
-# --- STATE MANAGEMENT ---
+# --- STATE MGMT ---
 if "ingest_word" not in st.session_state: st.session_state.ingest_word = ""
 if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
-if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
 
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# Quiz Section (Select Tiers)
+# Tiers Selection
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: st.checkbox("Maintenance", value=True)
@@ -99,10 +96,12 @@ st.button("▶ START VOCAB QUIZ", type="primary")
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 
-# 1. THE ACTIVE-HIDDEN BRIDGE
-audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
+# --- THE HARDENED BRIDGE (Hidden Triggers) ---
+# This area is hidden by CSS but used by JavaScript to talk to Python
+bridge_data = st.text_input("bridge_storage", key="bridge_storage", label_visibility="hidden")
+bridge_trigger = st.button("bridge_click", key="bridge_trigger", label_visibility="hidden")
 
-# 2. THE DUAL-PURPOSE INPUT ROW
+# --- THE VISUAL INPUT ROW ---
 col1, col2 = st.columns(2)
 
 with col1:
@@ -130,12 +129,18 @@ with col1:
                     reader.readAsDataURL(blob);
                     reader.onloadend = () => {
                         const parentDoc = window.parent.document;
-                        const bridge = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'audio_bridge');
                         
-                        if (bridge) {
+                        // 1. Find and populate the hidden data storage
+                        const storage = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'bridge_storage');
+                        // 2. Find the hidden trigger button
+                        const trigger = Array.from(parentDoc.querySelectorAll('button')).find(el => el.innerText === 'bridge_click');
+                        
+                        if (storage && trigger) {
                             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            setter.call(bridge, reader.result);
-                            bridge.dispatchEvent(new Event('input', { bubbles: true }));
+                            setter.call(storage, reader.result);
+                            storage.dispatchEvent(new Event('input', { bubbles: true }));
+                            // 3. Physically click the hidden button to wake up Python
+                            setTimeout(() => { trigger.click(); }, 100);
                         }
                         setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 2000);
                     };
@@ -151,30 +156,30 @@ with col1:
     """, height=50)
 
 with col2:
-    # THE UNIFIED BOX: transcribed word from voice OR manual type.
-    text_input = st.text_input("TEXT_ENTRY", value=st.session_state.ingest_word, key="main_text_input", placeholder="OR TYPE HERE...", label_visibility="collapsed")
+    # THE UNIFIED BOX: Where voice transcription lands or where you type manually.
+    text_input = st.text_input("WORD_ENTRY", value="", key="main_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
     if text_input and text_input.upper() != st.session_state.ingest_word:
         st.session_state.ingest_word = text_input.upper()
         st.session_state.ingest_def = None
 
-# 3. VOICE ENGINE PROCESSING
-if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
-    st.session_state.last_audio_b64 = audio_b64
-    with st.spinner("Transcribing..."):
+# --- TRIGGERED PROCESSING (The Baton Handoff) ---
+if bridge_trigger and bridge_data:
+    with st.status("⏳ PROCESSING VOICE...", expanded=False) as status:
         try:
-            b64_data = audio_b64.split(",")[1]
+            b64_data = bridge_data.split(",")[1]
             audio_file = io.BytesIO(base64.b64decode(b64_data))
             audio_file.name = "audio.webm"
             transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
             st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
             st.session_state.ingest_def = None
-            st.rerun() 
-        except: pass
+            status.update(label="✅ VOICE TRANSCRIBED!", state="complete")
+            st.rerun()
+        except:
+            status.update(label="❌ VOICE ERROR", state="error")
 
-# 4. RESULTS SECTION
-if st.session_state.ingest_word:
+# --- RESULTS AREA ---
+if st.session_state.ingest_word != "":
     st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
-    
     if not st.session_state.ingest_def:
         with st.spinner("Defining..."):
             response = client.chat.completions.create(
@@ -184,8 +189,8 @@ if st.session_state.ingest_word:
                           {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}]
             )
             st.session_state.ingest_def = response.choices[0].message.content
-
+    
     st.info(st.session_state.ingest_def)
     
     if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. UI Confirmed. Final Database Step Ready.")
+        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic is ready.")
