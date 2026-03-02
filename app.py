@@ -11,23 +11,26 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CUSTOM CSS (Precision Alignment & Unified Ingest) ---
+# --- CSS: THE INVISIBILITY CLOAK & ALIGNMENT ---
 st.markdown("""
 <style>
-    /* Force Symmetry: Button and Text Input heights */
-    div[data-testid="stTextInput"] input {
+    /* 1. Crush the Technical Bridge - Absolutely Invisible */
+    div[data-testid="stTextInput"]:has(input[aria-label="audio_bridge"]) {
+        height: 0px !important;
+        margin: 0px !important;
+        padding: 0px !important;
+        overflow: hidden !important;
+        display: none !important;
+    }
+    
+    /* 2. Symmetrical Input Box */
+    div[data-testid="stTextInput"]:has(input[aria-label="WORD_HOLDER"]) input {
         height: 45px !important;
         font-size: 16px !important;
         text-transform: uppercase !important;
     }
-    
-    /* Technical Bridge: Physically moved off-screen */
-    .offscreen {
-        position: absolute;
-        left: -9999px;
-    }
 
-    /* Standard Button Geometry */
+    /* 3. Button Geometry */
     .stButton > button {
         width: 100% !important;
         height: 3em !important;
@@ -72,7 +75,7 @@ def load_data():
 
 df = load_data()
 
-# --- STATE MGMT ---
+# --- STATE MANAGEMENT ---
 if "ingest_word" not in st.session_state: st.session_state.ingest_word = ""
 if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
 if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
@@ -80,25 +83,21 @@ if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = "
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# Tiers
+# Quiz Section
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
-with cols[0]: maintenance = st.checkbox("Maintenance", value=True)
-with cols[1]: advanced = st.checkbox("Advanced", value=True)
-with cols[2]: specialized = st.checkbox("Specialized", value=True)
-
-if st.button("▶ START VOCAB QUIZ", type="primary"):
-    st.write("Quiz Loaded.")
+with cols[0]: st.checkbox("Maintenance", value=True)
+with cols[1]: st.checkbox("Advanced", value=True)
+with cols[2]: st.checkbox("Specialized", value=True)
+st.button("▶ START VOCAB QUIZ", type="primary")
 
 st.divider()
 st.subheader("📥 COGLI Quick Ingest")
 
-# 1. THE OFF-SCREEN TECHNICAL BRIDGE
-st.markdown('<div class="offscreen">', unsafe_allow_html=True)
-audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="hidden")
-st.markdown('</div>', unsafe_allow_html=True)
+# 1. THE HIDDEN BRIDGE (CSS handles the disappearance)
+audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
 
-# 2. THE DUAL-PURPOSE INPUT ROW
+# 2. THE DUAL-PURPOSE ROW
 col1, col2 = st.columns(2)
 
 with col1:
@@ -143,43 +142,37 @@ with col1:
     """, height=50)
 
 with col2:
-    # This is the Unified Word Box. Voice or Text lands here.
-    word_box_input = st.text_input("WORD_HOLDER", value=st.session_state.ingest_word, key="main_word_input", placeholder="TYPE OR SPEAK WORD...", label_visibility="collapsed")
+    # THE UNIFIED BOX: Transcribed words land here; typed words stay here.
+    word_box_input = st.text_input("WORD_HOLDER", value=st.session_state.ingest_word, key="main_word_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
     if word_box_input.upper() != st.session_state.ingest_word:
         st.session_state.ingest_word = word_box_input.upper()
         st.session_state.ingest_def = None
 
-# 3. VOICE-TO-TEXT PROCESSING
+# 3. VOICE ENGINE
 if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
     st.session_state.last_audio_b64 = audio_b64
-    with st.spinner("Transcribing..."):
-        try:
-            b64_data = audio_b64.split(",")[1]
-            audio_file = io.BytesIO(base64.b64decode(b64_data))
-            audio_file.name = "audio.webm"
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-            st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
-            st.session_state.ingest_def = None
-            st.rerun() # Refresh to push the word into the Word Box
-        except: pass
+    try:
+        b64_data = audio_b64.split(",")[1]
+        audio_file = io.BytesIO(base64.b64decode(b64_data))
+        audio_file.name = "audio.webm"
+        transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+        st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
+        st.session_state.ingest_def = None
+        st.rerun()
+    except: pass
 
-# 4. RESULTS SECTION
+# 4. RESULTS
 if st.session_state.ingest_word and st.session_state.ingest_word != "":
-    st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
-    
+    st.markdown(f"**DETECTED:** `{st.session_state.ingest_word}`")
     if not st.session_state.ingest_def:
-        with st.spinner("Synthesizing COGLI Definition..."):
+        with st.spinner("Defining..."):
             response = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.0,
-                messages=[
-                    {"role": "system", "content": "Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
-                    {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}
-                ]
+                messages=[{"role": "system", "content": "Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
+                          {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}]
             )
             st.session_state.ingest_def = response.choices[0].message.content
-
     st.info(st.session_state.ingest_def)
-    
     if st.button("COMMIT THIS WORD TO THE VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic pending.")
+        st.success(f"STAGED: {st.session_state.ingest_word}")
