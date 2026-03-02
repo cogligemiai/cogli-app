@@ -11,25 +11,36 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CUSTOM CSS (Active-Hidden Bridge & Symmetry) ---
+# --- CSS (ULTRA-PRECISION ALIGNMENT) ---
 st.markdown("""
 <style>
-    /* 1. Symmetrical Input Box & Buttons */
+    /* 1. Header Styling */
+    .word-label { font-size: 24px; color: white; }
+    .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
+    
+    /* 2. Symmetrical Ingest Console Alignment */
+    [data-testid="column"] {
+        display: flex;
+        align-items: flex-end; /* Force vertical alignment */
+    }
+
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
         text-transform: uppercase !important;
+        margin-bottom: 0px !important;
     }
     
     .stButton > button {
         width: 100% !important;
-        height: 3em !important;
-        font-size: 18px !important;
+        height: 45px !important; /* Matches Input Box */
+        font-size: 16px !important;
         font-weight: bold !important;
-        border-radius: 10px !important;
+        border-radius: 8px !important;
+        text-transform: uppercase !important;
     }
 
-    /* 2. The Active-Hidden Bridge (Invisible but functional) */
+    /* 3. The Active-Hidden Bridge (Invisible but functional) */
     div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
         position: absolute !important;
         opacity: 0 !important;
@@ -92,12 +103,12 @@ with cols[2]: st.checkbox("Specialized", value=True)
 st.button("▶ START VOCAB QUIZ", type="primary")
 
 st.divider()
-st.subheader("📥 COGLI Quick Ingest")
+st.subheader("📥 COGLI Vocab Lookup")
 
 # 1. THE ACTIVE-HIDDEN BRIDGE
 audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
 
-# 2. THE DUAL-PURPOSE INPUT ROW
+# 2. THE SYMMETRICAL INPUT ROW
 col1, col2 = st.columns(2)
 
 with col1:
@@ -125,7 +136,6 @@ with col1:
                     reader.readAsDataURL(blob);
                     reader.onloadend = () => {
                         const parentDoc = window.parent.document;
-                        // Find the hidden bridge using the aria-label assigned by Streamlit
                         const inputs = Array.from(parentDoc.querySelectorAll('input'));
                         const bridge = inputs.find(el => el.getAttribute('aria-label') === 'audio_bridge');
                         
@@ -134,7 +144,7 @@ with col1:
                             setter.call(bridge, reader.result);
                             bridge.dispatchEvent(new Event('input', { bubbles: true }));
                         }
-                        setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 1500);
+                        setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 2000);
                     };
                 };
                 mediaRecorder.start();
@@ -148,29 +158,29 @@ with col1:
     """, height=50)
 
 with col2:
-    # THE UNIFIED BOX: Where voice transcription lands or where you type manually.
+    # THE UNIFIED BOX: Transcribed word lands here. Typing word stays here.
     word_box_input = st.text_input("WORD_HOLDER", value=st.session_state.ingest_word, key="main_word_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
     if word_box_input.upper() != st.session_state.ingest_word:
         st.session_state.ingest_word = word_box_input.upper()
         st.session_state.ingest_def = None
 
-# 3. VOICE-TO-TEXT PROCESSING
+# 3. VOICE ENGINE PROCESSING
 if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
     st.session_state.last_audio_b64 = audio_b64
-    try:
-        b64_data = audio_b64.split(",")[1]
-        audio_file = io.BytesIO(base64.b64decode(b64_data))
-        audio_file.name = "audio.webm"
-        transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-        # Update word and trigger rerun to populate the unified box
-        st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
-        st.session_state.ingest_def = None
-        st.rerun()
-    except: pass
+    with st.spinner("Transcribing..."):
+        try:
+            b64_data = audio_b64.split(",")[1]
+            audio_file = io.BytesIO(base64.b64decode(b64_data))
+            audio_file.name = "audio.webm"
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+            st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
+            st.session_state.ingest_def = None
+            st.rerun() # Refresh so the word appears in the box
+        except: pass
 
-# 4. RESULTS & COMMIT
+# 4. RESULTS SECTION
 if st.session_state.ingest_word != "":
-    st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
+    st.markdown(f"**DETECTED:** `{st.session_state.ingest_word}`")
     if not st.session_state.ingest_def:
         with st.spinner("Defining..."):
             response = client.chat.completions.create(
@@ -183,4 +193,4 @@ if st.session_state.ingest_word != "":
     st.info(st.session_state.ingest_def)
     
     if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Database write-back is the final step.")
+        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic is ready.")
