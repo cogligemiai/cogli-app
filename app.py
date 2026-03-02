@@ -11,36 +11,26 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CSS (ULTRA-PRECISION ALIGNMENT) ---
+# --- CUSTOM CSS (Active-Hidden Bridge & Precision Symmetry) ---
 st.markdown("""
 <style>
-    /* 1. Header Styling */
-    .word-label { font-size: 24px; color: white; }
-    .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
-    
-    /* 2. Symmetrical Ingest Console Alignment */
-    [data-testid="column"] {
-        display: flex;
-        align-items: flex-end; /* Force vertical alignment */
-    }
-
+    /* 1. Symmetrical Input Box & Buttons */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
         text-transform: uppercase !important;
-        margin-bottom: 0px !important;
     }
     
     .stButton > button {
         width: 100% !important;
-        height: 45px !important; /* Matches Input Box */
+        height: 45px !important;
         font-size: 16px !important;
         font-weight: bold !important;
         border-radius: 8px !important;
         text-transform: uppercase !important;
     }
 
-    /* 3. The Active-Hidden Bridge (Invisible but functional) */
+    /* 2. The Active-Hidden Bridge (Invisible but functional) */
     div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
         position: absolute !important;
         opacity: 0 !important;
@@ -48,6 +38,12 @@ st.markdown("""
         width: 0 !important;
         overflow: hidden !important;
         pointer-events: none !important;
+    }
+    
+    /* 3. Force Columns to Align Bottom */
+    [data-testid="column"] {
+        display: flex;
+        align-items: flex-end;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -108,7 +104,7 @@ st.subheader("📥 COGLI Vocab Lookup")
 # 1. THE ACTIVE-HIDDEN BRIDGE
 audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
 
-# 2. THE SYMMETRICAL INPUT ROW
+# 2. THE DUAL-PURPOSE INPUT ROW
 col1, col2 = st.columns(2)
 
 with col1:
@@ -158,13 +154,16 @@ with col1:
     """, height=50)
 
 with col2:
-    # THE UNIFIED BOX: Transcribed word lands here. Typing word stays here.
-    word_box_input = st.text_input("WORD_HOLDER", value=st.session_state.ingest_word, key="main_word_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
-    if word_box_input.upper() != st.session_state.ingest_word:
+    # THE UNIFIED BOX: Where voice transcription lands or where you type manually.
+    # We use a placeholder and key-based state to prevent "sticky" values.
+    word_box_input = st.text_input("WORD_ENTRY", value="", key="main_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
+    
+    # Check if a word was entered via text
+    if word_box_input and word_box_input.upper() != st.session_state.ingest_word:
         st.session_state.ingest_word = word_box_input.upper()
         st.session_state.ingest_def = None
 
-# 3. VOICE ENGINE PROCESSING
+# 3. VOICE-TO-TEXT PROCESSING
 if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
     st.session_state.last_audio_b64 = audio_b64
     with st.spinner("Transcribing..."):
@@ -175,12 +174,12 @@ if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
             transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
             st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
             st.session_state.ingest_def = None
-            st.rerun() # Refresh so the word appears in the box
+            st.rerun() # Refresh to show results
         except: pass
 
-# 4. RESULTS SECTION
+# 4. RESULTS & COMMIT
 if st.session_state.ingest_word != "":
-    st.markdown(f"**DETECTED:** `{st.session_state.ingest_word}`")
+    st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
     if not st.session_state.ingest_def:
         with st.spinner("Defining..."):
             response = client.chat.completions.create(
