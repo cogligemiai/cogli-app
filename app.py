@@ -11,10 +11,10 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CSS (ALIGNMENT & HIDDEN BRIDGE) ---
+# --- CSS (ULTRA-SYMMETRY & TOTAL INVISIBILITY) ---
 st.markdown("""
 <style>
-    /* 1. Force the Voice Button and Text Input to be identical heights */
+    /* 1. Symmetrical Input Box & Buttons */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
@@ -27,17 +27,16 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: bold !important;
         border-radius: 8px !important;
-        text-transform: uppercase !important;
     }
 
-    /* 2. Physically hide the technical bridge triggers from the UI */
-    div:has(> input[aria-label="bridge_storage"]),
-    div:has(> button[key="bridge_trigger"]) {
+    /* 2. Total Invisibility for Technical Bridge Fields */
+    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="bridge_storage"]) {
         display: none !important;
         height: 0px !important;
+        margin: 0px !important;
     }
     
-    /* 3. Ensure columns are level */
+    /* 3. Force Row Alignment */
     [data-testid="column"] {
         display: flex;
         align-items: flex-end;
@@ -79,14 +78,30 @@ def load_data():
 
 df = load_data()
 
-# --- STATE MANAGEMENT ---
+# --- STATE MGMT ---
 if "ingest_word" not in st.session_state: st.session_state.ingest_word = ""
 if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
-if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
+
+# --- VOICE PROCESSING CALLBACK ---
+def handle_voice_data():
+    data = st.session_state.bridge_storage
+    if data and "data:audio" in data:
+        with st.status("⏳ SYNTHESIZING VOICE...") as status:
+            try:
+                b64_data = data.split(",")[1]
+                audio_file = io.BytesIO(base64.b64decode(b64_data))
+                audio_file.name = "audio.webm"
+                transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+                st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
+                st.session_state.ingest_def = None
+                status.update(label="✅ TRANSCRIBED", state="complete")
+            except Exception as e:
+                status.update(label=f"❌ ERROR: {e}", state="error")
 
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
+# Tiers Selection
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: st.checkbox("Maintenance", value=True)
@@ -97,12 +112,10 @@ st.button("▶ START VOCAB QUIZ", type="primary")
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 
-# --- THE HARDENED BRIDGE (Technical - Hidden by CSS) ---
-bridge_data = st.text_input("bridge_storage", key="bridge_storage", label_visibility="collapsed")
-# Removed label_visibility from button to fix TypeError; CSS now handles hiding it
-bridge_trigger = st.button("bridge_click", key="bridge_trigger")
+# 1. THE HIDDEN BRIDGE (Auto-triggers handle_voice_data on change)
+st.text_input("bridge_storage", key="bridge_storage", on_change=handle_voice_data, label_visibility="collapsed")
 
-# --- THE UNIFIED INPUT ROW ---
+# 2. THE VISUAL INPUT ROW
 col1, col2 = st.columns(2)
 
 with col1:
@@ -131,14 +144,14 @@ with col1:
                     reader.onloadend = () => {
                         const parentDoc = window.parent.document;
                         const storage = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'bridge_storage');
-                        const trigger = Array.from(parentDoc.querySelectorAll('button')).find(el => el.innerText === 'bridge_click');
                         
-                        if (storage && trigger) {
+                        if (storage) {
                             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                             setter.call(storage, reader.result);
                             storage.dispatchEvent(new Event('input', { bubbles: true }));
-                            setTimeout(() => { trigger.click(); }, 100);
+                            // The dispatchEvent 'input' triggers the on_change in Streamlit
                         }
+                        setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 2000);
                     };
                 };
                 mediaRecorder.start();
@@ -152,39 +165,15 @@ with col1:
     """, height=50)
 
 with col2:
-    # This function handles the manual typing update
-    def sync_text():
-        st.session_state.ingest_word = st.session_state.main_input.upper()
+    # Manual Text Input
+    text_input = st.text_input("WORD_ENTRY", value=st.session_state.ingest_word, key="main_text_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
+    if text_input and text_input.upper() != st.session_state.ingest_word:
+        st.session_state.ingest_word = text_input.upper()
         st.session_state.ingest_def = None
-
-    # THE UNIFIED BOX: value is tied to state so voice transcription appears here too
-    st.text_input(
-        "WORD_ENTRY", 
-        value=st.session_state.ingest_word, 
-        key="main_input", 
-        on_change=sync_text,
-        placeholder="TYPE OR SPEAK...", 
-        label_visibility="collapsed"
-    )
-
-# --- VOICE PROCESSING (Triggered by Hidden Button) ---
-if bridge_trigger and bridge_data:
-    with st.status("⏳ TRANSCRIBING VOICE...") as status:
-        try:
-            b64_data = bridge_data.split(",")[1]
-            audio_file = io.BytesIO(base64.b64decode(b64_data))
-            audio_file.name = "audio.webm"
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-            st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
-            st.session_state.ingest_def = None
-            status.update(label="✅ DONE!", state="complete", expanded=False)
-            st.rerun()
-        except:
-            status.update(label="❌ ERROR", state="error")
 
 # --- RESULTS AREA ---
 if st.session_state.ingest_word:
-    st.markdown(f"**WORD:** `{st.session_state.ingest_word}`")
+    st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
     
     if not st.session_state.ingest_def:
         with st.spinner("Defining..."):
@@ -199,4 +188,4 @@ if st.session_state.ingest_word:
     st.info(st.session_state.ingest_def)
     
     if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Writing to Drive...")
+        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic is ready.")
