@@ -1,4 +1,4 @@
-import streamlit as st
+Actually I really have this over here import streamlit as st
 import pandas as pd
 import json
 import random
@@ -230,11 +230,30 @@ else:
 
 
 # --- COGLI QUICK INGEST MODULE (ZERO-RISK EXPANDER) ---
-# --- COGLI QUICK INGEST CONSOLE (CLEAN & PERSISTENT) ---
+# --- COGLI QUICK INGEST CONSOLE (PRECISION-ALIGNED) ---
 st.divider()
 st.subheader("📥 COGLI Quick Ingest")
 
-# Initialize Session State
+# 1. Inject CSS for Perfect Alignment and Hidden Fields
+st.markdown("""
+    <style>
+    /* Force the Text Input to match the button height exactly */
+    div[data-testid="stTextInput"] input {
+        height: 45px !important;
+        font-size: 16px !important;
+        text-transform: uppercase !important;
+    }
+    /* Completely hide the technical data bridge */
+    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
+        display: none !important;
+        height: 0px !important;
+        margin: 0px !important;
+        padding: 0px !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# 2. Initialize Session State
 if "ingest_word" not in st.session_state:
     st.session_state.ingest_word = None
 if "ingest_def" not in st.session_state:
@@ -242,22 +261,20 @@ if "ingest_def" not in st.session_state:
 if "last_audio_b64" not in st.session_state:
     st.session_state.last_audio_b64 = ""
 
-# --- THE INPUT ROW ---
-col1, col2 = st.columns([1, 1])
+# 3. The Technical Bridge (Now CSS-Hidden)
+audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
+
+# 4. The Symmetrical Input Row
+col1, col2 = st.columns(2)
 
 with col1:
     import streamlit.components.v1 as components
     import base64
     import io
     
-    # Hide the data bridge field completely using a CSS container
-    st.markdown("<div style='display:none;'>", unsafe_allow_html=True)
-    audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
-    st.markdown("</div>", unsafe_allow_html=True)
-        
-    # Custom JS: Persistent VOICE Button with 3s Auto-Stop
+    # Custom JS: Sized to 45px height to match Streamlit Text Input
     components.html("""
-    <div style="display: flex; justify-content: center; margin-top: -10px;">
+    <div style="display: flex; justify-content: center; margin-top: 0px;">
         <button id="cogli-mic" style="width: 100%; height: 45px; font-size: 16px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase;">
             🎤 Voice
         </button>
@@ -301,13 +318,13 @@ with col1:
     """, height=50)
 
 with col2:
-    # Minimalist Text Input
-    text_input = st.text_input("TEXT", key="text_lookup_input", placeholder="TYPE WORD HERE...", label_visibility="collapsed")
+    # Text Input forced to 45px height by CSS above
+    text_input = st.text_input("TEXT_ENTRY", key="text_lookup_input", placeholder="TYPE WORD HERE...", label_visibility="collapsed")
     if text_input and text_input.strip().upper() != st.session_state.ingest_word:
         st.session_state.ingest_word = text_input.strip().upper()
         st.session_state.ingest_def = None
 
-# --- AUDIO PROCESSING LOGIC ---
+# 5. Audio Processing Logic
 if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
     st.session_state.last_audio_b64 = audio_b64
     with st.spinner("Transcribing..."):
@@ -323,12 +340,12 @@ if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
             st.rerun()
         except: pass
 
-# --- RESULTS & COMMIT ---
+# 6. Response Section (Now underneath for cleaner look)
 if st.session_state.ingest_word:
-    st.markdown(f"**TARGET WORD:** {st.session_state.ingest_word}")
+    st.markdown(f"**TARGET WORD:** `{st.session_state.ingest_word}`")
     
     if not st.session_state.ingest_def:
-        with st.spinner("Synthesizing..."):
+        with st.spinner("Defining..."):
             client, _ = init_engines()
             response = client.chat.completions.create(
                 model="gpt-4o",
