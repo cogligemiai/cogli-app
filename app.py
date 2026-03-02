@@ -31,19 +31,16 @@ st.markdown("""
     }
 
     /* 2. The Active-Hidden Bridge (Invisible but functional) */
-    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
+    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="VOICE_DATA_LINK"]) {
         position: absolute !important;
-        opacity: 0 !important;
-        height: 0 !important;
-        width: 0 !important;
-        overflow: hidden !important;
-        pointer-events: none !important;
+        left: -5000px !important;
     }
     
-    /* 3. Force Columns to Align Bottom */
+    /* 3. Force Columns to Align Bottom and stay same height */
     [data-testid="column"] {
         display: flex;
         align-items: flex-end;
+        min-height: 45px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -101,8 +98,8 @@ st.button("▶ START VOCAB QUIZ", type="primary")
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 
-# 1. THE ACTIVE-HIDDEN BRIDGE
-audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
+# 1. THE ACTIVE-HIDDEN BRIDGE (Targeted by JS)
+audio_b64 = st.text_input("VOICE_DATA_LINK", key="audio_b64", label_visibility="collapsed")
 
 # 2. THE DUAL-PURPOSE INPUT ROW
 col1, col2 = st.columns(2)
@@ -132,8 +129,8 @@ with col1:
                     reader.readAsDataURL(blob);
                     reader.onloadend = () => {
                         const parentDoc = window.parent.document;
-                        const inputs = Array.from(parentDoc.querySelectorAll('input'));
-                        const bridge = inputs.find(el => el.getAttribute('aria-label') === 'audio_bridge');
+                        // Use a specific selector for the hidden bridge
+                        const bridge = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'VOICE_DATA_LINK');
                         
                         if (bridge) {
                             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
@@ -155,7 +152,6 @@ with col1:
 
 with col2:
     # THE UNIFIED BOX: Where voice transcription lands or where you type manually.
-    # We use a placeholder and key-based state to prevent "sticky" values.
     word_box_input = st.text_input("WORD_ENTRY", value="", key="main_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
     
     # Check if a word was entered via text
@@ -174,10 +170,10 @@ if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
             transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
             st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
             st.session_state.ingest_def = None
-            st.rerun() # Refresh to show results
+            st.rerun() 
         except: pass
 
-# 4. RESULTS & COMMIT
+# 4. RESULTS AREA
 if st.session_state.ingest_word != "":
     st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
     if not st.session_state.ingest_def:
@@ -189,7 +185,8 @@ if st.session_state.ingest_word != "":
                           {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}]
             )
             st.session_state.ingest_def = response.choices[0].message.content
+    
     st.info(st.session_state.ingest_def)
     
-    if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic is ready.")
+    if st.button("COMMIT WORD TO VOCABULARY DATABASE", type="secondary", use_container_width=True):
+        st.success(f"STAGED: {st.session_state.ingest_word}. Ready for final Drive Write-back.")
