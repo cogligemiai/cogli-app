@@ -230,141 +230,117 @@ else:
 
 
 # --- COGLI QUICK INGEST MODULE (ZERO-RISK EXPANDER) ---
-# --- COGLI QUICK INGEST MODULE (ZERO-RISK EXPANDER) ---
+# --- COGLI QUICK INGEST CONSOLE (CLEAN & PERSISTENT) ---
 st.divider()
-with st.expander("📥 OPEN COGLI QUICK INGEST (Voice & Text)"):
-    st.markdown("Lookup and stage new words directly to COGLI.")
-    
-    # Initialize specific session state for Ingest to avoid quiz conflicts
-    if "ingest_word" not in st.session_state:
-        st.session_state.ingest_word = None
-    if "ingest_def" not in st.session_state:
-        st.session_state.ingest_def = None
-    if "last_audio_b64" not in st.session_state:
-        st.session_state.last_audio_b64 = ""
+st.subheader("📥 COGLI Quick Ingest")
 
-    col1, col2 = st.columns(2)
+# Initialize Session State
+if "ingest_word" not in st.session_state:
+    st.session_state.ingest_word = None
+if "ingest_def" not in st.session_state:
+    st.session_state.ingest_def = None
+if "last_audio_b64" not in st.session_state:
+    st.session_state.last_audio_b64 = ""
+
+# --- THE INPUT ROW ---
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    import streamlit.components.v1 as components
+    import base64
+    import io
     
-    with col1:
-        st.subheader("Voice Lookup")
+    # Hide the data bridge field completely using a CSS container
+    st.markdown("<div style='display:none;'>", unsafe_allow_html=True)
+    audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
+    st.markdown("</div>", unsafe_allow_html=True)
         
-        import streamlit.components.v1 as components
-        import base64
-        import io
-        
-        # Hidden input to receive the audio data from JavaScript
-        audio_b64 = st.text_input("audio_data_target", key="audio_b64", label_visibility="hidden")
-            
-        # The Custom HTML5/JS Auto-Stop Recorder
-        components.html("""
-        <div style="display: flex; justify-content: center; margin-top: -25px;">
-            <button id="cogli-mic" style="width: 100%; padding: 15px; font-size: 16px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 8px; cursor: pointer;">
-                🎤 TAP ONCE & SPEAK (3s Auto-Stop)
-            </button>
-        </div>
-        <script>
-            const btn = document.getElementById('cogli-mic');
-            btn.onclick = async () => {
-                btn.innerText = "🔴 LISTENING... (Speak Now)";
-                btn.style.backgroundColor = "#cc0000";
-                
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    const mediaRecorder = new MediaRecorder(stream);
-                    const audioChunks =[];
-                    
-                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                    mediaRecorder.onstop = () => {
-                        btn.innerText = "⏳ PROCESSING...";
-                        btn.style.backgroundColor = "#555555";
-                        
-                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                        const reader = new FileReader();
-                        reader.readAsDataURL(blob);
-                        reader.onloadend = () => {
-                            const base64String = reader.result;
-                            
-                            // Secretly inject the audio into Streamlit's hidden text input
-                            const parentDoc = window.parent.document;
-                            const inputs = parentDoc.querySelectorAll('input[aria-label="audio_data_target"]');
-                            if (inputs.length > 0) {
-                                const hiddenInput = inputs[0];
-                                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                nativeSetter.call(hiddenInput, base64String);
-                                hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
-                            }
-                            
-                            // Reset button UI
-                            setTimeout(() => {
-                                btn.innerText = "🎤 TAP ONCE & SPEAK (3s Auto-Stop)";
-                                btn.style.backgroundColor = "#FF4B4B";
-                            }, 2000);
-                        };
+    # Custom JS: Persistent VOICE Button with 3s Auto-Stop
+    components.html("""
+    <div style="display: flex; justify-content: center; margin-top: -10px;">
+        <button id="cogli-mic" style="width: 100%; height: 45px; font-size: 16px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase;">
+            🎤 Voice
+        </button>
+    </div>
+    <script>
+        const btn = document.getElementById('cogli-mic');
+        btn.onclick = async () => {
+            btn.innerText = "🔴 LISTENING...";
+            btn.style.backgroundColor = "#cc0000";
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const mediaRecorder = new MediaRecorder(stream);
+                const audioChunks = [];
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = () => {
+                    btn.innerText = "⏳ PROCESSING...";
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+                    reader.readAsDataURL(blob);
+                    reader.onloadend = () => {
+                        const base64String = reader.result;
+                        const parentDoc = window.parent.document;
+                        const inputs = parentDoc.querySelectorAll('input[aria-label="audio_bridge"]');
+                        if (inputs.length > 0) {
+                            const hiddenInput = inputs[0];
+                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                            nativeSetter.call(hiddenInput, base64String);
+                            hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                        setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 1500);
                     };
-                    
-                    mediaRecorder.start();
-                    
-                    // The Deterministic 3-Second Auto-Stop Timer
-                    setTimeout(() => {
-                        mediaRecorder.stop();
-                        stream.getTracks().forEach(track => track.stop());
-                    }, 3000); 
-                    
-                } catch (err) {
-                    btn.innerText = "❌ Mic Access Denied";
-                }
-            };
-        </script>
-        """, height=70)
+                };
+                mediaRecorder.start();
+                setTimeout(() => { 
+                    mediaRecorder.stop(); 
+                    stream.getTracks().forEach(t => t.stop());
+                }, 3000); 
+            } catch (err) { btn.innerText = "❌ MIC ERROR"; }
+        };
+    </script>
+    """, height=50)
 
-        # Python Handoff: Decode Base64 and send to Whisper
-        if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
-            st.session_state.last_audio_b64 = audio_b64
-            with st.spinner("Transcribing..."):
-                try:
-                    b64_data = audio_b64.split(",")[1]
-                    audio_bytes = base64.b64decode(b64_data)
-                    audio_file = io.BytesIO(audio_bytes)
-                    audio_file.name = "audio.webm"
-                    
-                    client, drive_service = init_engines() 
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file
-                    )
-                    st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
-                    st.session_state.ingest_def = None
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Audio processing error: {e}")
+with col2:
+    # Minimalist Text Input
+    text_input = st.text_input("TEXT", key="text_lookup_input", placeholder="TYPE WORD HERE...", label_visibility="collapsed")
+    if text_input and text_input.strip().upper() != st.session_state.ingest_word:
+        st.session_state.ingest_word = text_input.strip().upper()
+        st.session_state.ingest_def = None
+
+# --- AUDIO PROCESSING LOGIC ---
+if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
+    st.session_state.last_audio_b64 = audio_b64
+    with st.spinner("Transcribing..."):
+        try:
+            b64_data = audio_b64.split(",")[1]
+            audio_bytes = base64.b64decode(b64_data)
+            audio_file = io.BytesIO(audio_bytes)
+            audio_file.name = "audio.webm"
+            client, _ = init_engines() 
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+            st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
+            st.session_state.ingest_def = None
+            st.rerun()
+        except: pass
+
+# --- RESULTS & COMMIT ---
+if st.session_state.ingest_word:
+    st.markdown(f"**TARGET WORD:** {st.session_state.ingest_word}")
     
-    with col2:
-        st.subheader("Text Lookup")
-        text_input = st.text_input("Type the word", key="text_lookup_input")
-        if st.button("Lookup Text"):
-            if text_input:
-                st.session_state.ingest_word = text_input.strip().upper()
-                st.session_state.ingest_def = None
+    if not st.session_state.ingest_def:
+        with st.spinner("Synthesizing..."):
+            client, _ = init_engines()
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": "Provide the definition using OED/Cambridge. Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
+                    {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}
+                ]
+            )
+            st.session_state.ingest_def = response.choices[0].message.content
 
-    # --- SYNTHESIS SECTION ---
-    if st.session_state.ingest_word:
-        st.markdown(f"### Target Word: **{st.session_state.ingest_word}**")
-        
-        if not st.session_state.ingest_def:
-            with st.spinner("Synthesizing COGLI Definition..."):
-                client, drive_service = init_engines()
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    temperature=0.0,
-                    messages=[
-                        {"role": "system", "content": "You are a high-precision lexicographer. Provide the definition of the word using best-of-breed sources (OED, Cambridge). Format strictly as: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
-                        {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}
-                    ]
-                )
-                st.session_state.ingest_def = response.choices[0].message.content
+    st.info(st.session_state.ingest_def)
 
-        st.info(st.session_state.ingest_def)
-
-        # --- STAGING BUTTON ---
-        if st.button("COMMIT THIS WORD TO THE VOCABULARY DATABASE", use_container_width=True):
-            st.warning("Staging UI works! Google Drive write-back will be connected next.")
+    if st.button("COMMIT THIS WORD TO THE VOCABULARY DATABASE", use_container_width=True):
+        st.warning("UI Verified. Ready for Google Drive write-back connection.")
