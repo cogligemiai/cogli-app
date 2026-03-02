@@ -11,10 +11,14 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CSS (ULTRA-SYMMETRY & TOTAL INVISIBILITY) ---
+# --- CSS (SYMMETRY & TOTAL INVISIBILITY) ---
 st.markdown("""
 <style>
-    /* 1. Symmetrical Input Box & Buttons */
+    /* 1. Header Styling */
+    .word-label { font-size: 24px; color: white; }
+    .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
+    
+    /* 2. Symmetrical Input Box & Buttons */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
@@ -29,14 +33,15 @@ st.markdown("""
         border-radius: 8px !important;
     }
 
-    /* 2. Total Invisibility for Technical Bridge Fields */
+    /* 3. Total Invisibility for Technical Bridge Fields */
     div[data-testid="stVerticalBlock"] > div:has(input[aria-label="bridge_storage"]) {
-        display: none !important;
+        position: absolute !important;
+        opacity: 0 !important;
         height: 0px !important;
-        margin: 0px !important;
+        pointer-events: none !important;
     }
     
-    /* 3. Force Row Alignment */
+    /* 4. Force Row Alignment */
     [data-testid="column"] {
         display: flex;
         align-items: flex-end;
@@ -78,30 +83,15 @@ def load_data():
 
 df = load_data()
 
-# --- STATE MGMT ---
+# --- STATE MANAGEMENT ---
 if "ingest_word" not in st.session_state: st.session_state.ingest_word = ""
 if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
-
-# --- VOICE PROCESSING CALLBACK ---
-def handle_voice_data():
-    data = st.session_state.bridge_storage
-    if data and "data:audio" in data:
-        with st.status("⏳ SYNTHESIZING VOICE...") as status:
-            try:
-                b64_data = data.split(",")[1]
-                audio_file = io.BytesIO(base64.b64decode(b64_data))
-                audio_file.name = "audio.webm"
-                transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-                st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
-                st.session_state.ingest_def = None
-                status.update(label="✅ TRANSCRIBED", state="complete")
-            except Exception as e:
-                status.update(label=f"❌ ERROR: {e}", state="error")
+if "last_bridge_data" not in st.session_state: st.session_state.last_bridge_data = ""
 
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# Tiers Selection
+# Quiz Section
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: st.checkbox("Maintenance", value=True)
@@ -112,8 +102,8 @@ st.button("▶ START VOCAB QUIZ", type="primary")
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 
-# 1. THE HIDDEN BRIDGE (Auto-triggers handle_voice_data on change)
-st.text_input("bridge_storage", key="bridge_storage", on_change=handle_voice_data, label_visibility="collapsed")
+# 1. THE HIDDEN BRIDGE
+bridge_data = st.text_input("bridge_storage", key="bridge_storage", label_visibility="collapsed")
 
 # 2. THE VISUAL INPUT ROW
 col1, col2 = st.columns(2)
@@ -144,14 +134,11 @@ with col1:
                     reader.onloadend = () => {
                         const parentDoc = window.parent.document;
                         const storage = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'bridge_storage');
-                        
                         if (storage) {
                             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                             setter.call(storage, reader.result);
                             storage.dispatchEvent(new Event('input', { bubbles: true }));
-                            // The dispatchEvent 'input' triggers the on_change in Streamlit
                         }
-                        setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 2000);
                     };
                 };
                 mediaRecorder.start();
@@ -165,11 +152,27 @@ with col1:
     """, height=50)
 
 with col2:
-    # Manual Text Input
-    text_input = st.text_input("WORD_ENTRY", value=st.session_state.ingest_word, key="main_text_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
+    # Manual Text Entry
+    text_input = st.text_input("WORD_ENTRY", value=st.session_state.ingest_word, key="main_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
     if text_input and text_input.upper() != st.session_state.ingest_word:
         st.session_state.ingest_word = text_input.upper()
         st.session_state.ingest_def = None
+        st.rerun()
+
+# --- DIRECT-FLOW VOICE PROCESSING ---
+if bridge_data and bridge_data != st.session_state.last_bridge_data:
+    st.session_state.last_bridge_data = bridge_data
+    with st.spinner("⏳ TRANSCRIBING VOICE..."):
+        try:
+            b64_data = bridge_data.split(",")[1]
+            audio_file = io.BytesIO(base64.b64decode(b64_data))
+            audio_file.name = "audio.webm"
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+            st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
+            st.session_state.ingest_def = None
+            st.rerun() # Force UI to show the word and definition
+        except:
+            st.error("Voice Processing Failed.")
 
 # --- RESULTS AREA ---
 if st.session_state.ingest_word:
@@ -188,4 +191,4 @@ if st.session_state.ingest_word:
     st.info(st.session_state.ingest_def)
     
     if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic is ready.")
+        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic ready.")
