@@ -13,19 +13,16 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CUSTOM "IUI" CSS (Precision Alignment & Styling) ---
+# --- CUSTOM "IUI" CSS ---
 st.markdown("""
 <style>
-    /* Headers & Labels */
     .word-label { font-size: 24px; font-weight: normal; color: white; }
     .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
-
-    /* Hanging Indent for A, B, C */
     .option-box { display: flex; align-items: flex-start; margin-bottom: 15px; font-size: 18px; line-height: 1.4; }
     .option-label { min-width: 50px; font-weight: bold; }
     .option-text { flex: 1; }
 
-    /* Fat-Finger Button Geometry */
+    /* Button Styling */
     .stButton > button {
         width: 100% !important;
         height: 3em !important;
@@ -33,28 +30,17 @@ st.markdown("""
         font-weight: bold !important;
         border-radius: 10px !important;
     }
-
-    /* Primary Red Start Button */
-    div.stButton > button[kind="primary"] {
-        background-color: #FF4B4B !important;
-        color: white !important;
-        height: 3.5em !important;
-        font-size: 20px !important;
-    }
-
-    /* INGEST CONSOLE SYMMETRY */
+    
+    /* Input Box Symmetry */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
         text-transform: uppercase !important;
     }
 
-    /* Completely hide the technical data bridge */
+    /* Hide the audio bridge field from UI */
     div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
         display: none !important;
-        height: 0px !important;
-        margin: 0px !important;
-        padding: 0px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -70,7 +56,8 @@ def init_engines():
         creds = service_account.Credentials.from_service_account_info(creds_info)
         drive_service = build('drive', 'v3', credentials=creds)
         return client, drive_service
-    except:
+    except Exception as e:
+        st.error(f"Engine Init Error: {e}")
         return None, None
 
 client, drive_service = init_engines()
@@ -78,55 +65,59 @@ client, drive_service = init_engines()
 # --- DATA LOADING ---
 @st.cache_data
 def load_data():
-    file_id = "1R7vB9-mXQO7_Wp8pY3j5k9_T_V7v-Q-p" # Replace with your Master CSV File ID
-    request = drive_service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    fh.seek(0)
-    return pd.read_csv(fh)
+    # CRITICAL: Replace the string below with your actual Google Drive File ID
+    file_id = "PASTE_YOUR_FILE_ID_HERE" 
+    
+    if file_id == "PASTE_YOUR_FILE_ID_HERE":
+        st.error("Please provide your Google Drive File ID in the code (Line 80).")
+        return pd.DataFrame()
+        
+    try:
+        request = drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        return pd.read_csv(fh)
+    except Exception as e:
+        st.error(f"Google Drive Error: {e}")
+        return pd.DataFrame()
 
-try:
-    df = load_data()
-except:
-    st.error("Data connection failed. Check Google Drive permissions.")
-    df = pd.DataFrame()
+df = load_data()
 
-# --- APP LOGIC ---
+# --- STATE MGMT ---
+if "quiz_active" not in st.session_state: st.session_state.quiz_active = False
+if "ingest_word" not in st.session_state: st.session_state.ingest_word = None
+if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
+if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
+
+# --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# 1. TIER SELECTION
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: maintenance = st.checkbox("Maintenance", value=True)
 with cols[1]: advanced = st.checkbox("Advanced", value=True)
 with cols[2]: specialized = st.checkbox("Specialized", value=True)
 
-if st.button("▶ START VOCAB QUIZ", kind="primary"):
+if st.button("▶ START VOCAB QUIZ", type="primary"):
     st.session_state.quiz_active = True
-    st.session_state.current_index = 0
 
-# --- COGLI QUICK INGEST CONSOLE (CLEAN & PERSISTENT) ---
+# --- QUICK INGEST CONSOLE ---
 st.divider()
 st.subheader("📥 COGLI Quick Ingest")
 
-# State Initialization
-if "ingest_word" not in st.session_state: st.session_state.ingest_word = None
-if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
-if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
-
-# Hidden Data Bridge
+# Technical Bridge
 audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
 
-# Input Row
 col1, col2 = st.columns(2)
-
 with col1:
     import streamlit.components.v1 as components
+    import base64
     components.html("""
-    <div style="display: flex; justify-content: center; margin-top: 0px;">
+    <div style="display: flex; justify-content: center;">
         <button id="cogli-mic" style="width: 100%; height: 45px; font-size: 16px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase;">
             🎤 Voice
         </button>
@@ -147,24 +138,20 @@ with col1:
                     const reader = new FileReader();
                     reader.readAsDataURL(blob);
                     reader.onloadend = () => {
-                        const base64String = reader.result;
                         const parentDoc = window.parent.document;
                         const inputs = parentDoc.querySelectorAll('input[aria-label="audio_bridge"]');
                         if (inputs.length > 0) {
                             const hiddenInput = inputs[0];
                             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            nativeSetter.call(hiddenInput, base64String);
+                            nativeSetter.call(hiddenInput, reader.result);
                             hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
                         }
                         setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 1500);
                     };
                 };
                 mediaRecorder.start();
-                setTimeout(() => { 
-                    mediaRecorder.stop(); 
-                    stream.getTracks().forEach(t => t.stop());
-                }, 3000); 
-            } catch (err) { btn.innerText = "❌ MIC ERROR"; }
+                setTimeout(() => { mediaRecorder.stop(); stream.getTracks().forEach(t => t.stop()); }, 3000); 
+            } catch (err) { btn.innerText = "❌ ERROR"; }
         };
     </script>
     """, height=50)
@@ -175,7 +162,7 @@ with col2:
         st.session_state.ingest_word = text_input.strip().upper()
         st.session_state.ingest_def = None
 
-# Audio Processing
+# Audio Handoff
 if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
     st.session_state.last_audio_b64 = audio_b64
     with st.spinner("Transcribing..."):
@@ -189,7 +176,7 @@ if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
             st.rerun()
         except: pass
 
-# Results & Commit
+# Results
 if st.session_state.ingest_word:
     st.markdown(f"**TARGET WORD:** `{st.session_state.ingest_word}`")
     if not st.session_state.ingest_def:
@@ -197,12 +184,10 @@ if st.session_state.ingest_word:
             response = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.0,
-                messages=[
-                    {"role": "system", "content": "Provide definition using OED/Cambridge. Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
-                    {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}
-                ]
+                messages=[{"role": "system", "content": "Define word using OED/Cambridge. Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
+                          {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}]
             )
             st.session_state.ingest_def = response.choices[0].message.content
     st.info(st.session_state.ingest_def)
     if st.button("COMMIT THIS WORD TO THE VOCABULARY DATABASE", use_container_width=True):
-        st.warning("Database Write-back connection is the final step.")
+        st.warning("Ready for final Database Write-back connection.")
