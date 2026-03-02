@@ -230,6 +230,7 @@ else:
 
 
 # --- COGLI QUICK INGEST MODULE (ZERO-RISK EXPANDER) ---
+# --- COGLI QUICK INGEST MODULE (ZERO-RISK EXPANDER) ---
 st.divider()
 with st.expander("📥 OPEN COGLI QUICK INGEST (Voice & Text)"):
     st.markdown("Lookup and stage new words directly to COGLI.")
@@ -239,21 +240,103 @@ with st.expander("📥 OPEN COGLI QUICK INGEST (Voice & Text)"):
         st.session_state.ingest_word = None
     if "ingest_def" not in st.session_state:
         st.session_state.ingest_def = None
+    if "last_audio_b64" not in st.session_state:
+        st.session_state.last_audio_b64 = ""
 
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("Voice Lookup")
-        audio_bytes = st.audio_input("Speak the word")
-        if audio_bytes:
+        
+        import streamlit.components.v1 as components
+        import base64
+        import io
+        
+        # Hidden input to receive the audio data from JavaScript
+        audio_b64 = st.text_input("audio_data_target", key="audio_b64", label_visibility="hidden")
+            
+        # The Custom HTML5/JS Auto-Stop Recorder
+        components.html("""
+        <div style="display: flex; justify-content: center; margin-top: -25px;">
+            <button id="cogli-mic" style="width: 100%; padding: 15px; font-size: 16px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 8px; cursor: pointer;">
+                🎤 TAP ONCE & SPEAK (3s Auto-Stop)
+            </button>
+        </div>
+        <script>
+            const btn = document.getElementById('cogli-mic');
+            btn.onclick = async () => {
+                btn.innerText = "🔴 LISTENING... (Speak Now)";
+                btn.style.backgroundColor = "#cc0000";
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const mediaRecorder = new MediaRecorder(stream);
+                    const audioChunks =[];
+                    
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    mediaRecorder.onstop = () => {
+                        btn.innerText = "⏳ PROCESSING...";
+                        btn.style.backgroundColor = "#555555";
+                        
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        reader.readAsDataURL(blob);
+                        reader.onloadend = () => {
+                            const base64String = reader.result;
+                            
+                            // Secretly inject the audio into Streamlit's hidden text input
+                            const parentDoc = window.parent.document;
+                            const inputs = parentDoc.querySelectorAll('input[aria-label="audio_data_target"]');
+                            if (inputs.length > 0) {
+                                const hiddenInput = inputs[0];
+                                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                nativeSetter.call(hiddenInput, base64String);
+                                hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            
+                            // Reset button UI
+                            setTimeout(() => {
+                                btn.innerText = "🎤 TAP ONCE & SPEAK (3s Auto-Stop)";
+                                btn.style.backgroundColor = "#FF4B4B";
+                            }, 2000);
+                        };
+                    };
+                    
+                    mediaRecorder.start();
+                    
+                    // The Deterministic 3-Second Auto-Stop Timer
+                    setTimeout(() => {
+                        mediaRecorder.stop();
+                        stream.getTracks().forEach(track => track.stop());
+                    }, 3000); 
+                    
+                } catch (err) {
+                    btn.innerText = "❌ Mic Access Denied";
+                }
+            };
+        </script>
+        """, height=70)
+
+        # Python Handoff: Decode Base64 and send to Whisper
+        if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
+            st.session_state.last_audio_b64 = audio_b64
             with st.spinner("Transcribing..."):
-                client, drive_service = init_engines() 
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=("audio.wav", audio_bytes)
-                )
-                st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
-                st.session_state.ingest_def = None
+                try:
+                    b64_data = audio_b64.split(",")[1]
+                    audio_bytes = base64.b64decode(b64_data)
+                    audio_file = io.BytesIO(audio_bytes)
+                    audio_file.name = "audio.webm"
+                    
+                    client, drive_service = init_engines() 
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file
+                    )
+                    st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
+                    st.session_state.ingest_def = None
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Audio processing error: {e}")
     
     with col2:
         st.subheader("Text Lookup")
@@ -283,5 +366,5 @@ with st.expander("📥 OPEN COGLI QUICK INGEST (Voice & Text)"):
         st.info(st.session_state.ingest_def)
 
         # --- STAGING BUTTON ---
-        if st.button("📥 STAGE THIS WORD", use_container_width=True):
+        if st.button("COMMIT THIS WORD TO THE VOCABULARY DATABASE", use_container_width=True):
             st.warning("Staging UI works! Google Drive write-back will be connected next.")
