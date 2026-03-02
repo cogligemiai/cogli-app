@@ -226,3 +226,62 @@ if df_master is not None:
         st.rerun()
 else:
     st.warning("Connecting to COGLI Data...")
+
+
+
+# --- COGLI QUICK INGEST MODULE (ZERO-RISK EXPANDER) ---
+st.divider()
+with st.expander("📥 OPEN COGLI QUICK INGEST (Voice & Text)"):
+    st.markdown("Lookup and stage new words directly to COGLI.")
+    
+    # Initialize specific session state for Ingest to avoid quiz conflicts
+    if "ingest_word" not in st.session_state:
+        st.session_state.ingest_word = None
+    if "ingest_def" not in st.session_state:
+        st.session_state.ingest_def = None
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Voice Lookup")
+        audio_bytes = st.audio_input("Speak the word")
+        if audio_bytes:
+            with st.spinner("Transcribing..."):
+                client, drive_service = init_engines() 
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=("audio.wav", audio_bytes)
+                )
+                st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
+                st.session_state.ingest_def = None
+    
+    with col2:
+        st.subheader("Text Lookup")
+        text_input = st.text_input("Type the word", key="text_lookup_input")
+        if st.button("Lookup Text"):
+            if text_input:
+                st.session_state.ingest_word = text_input.strip().upper()
+                st.session_state.ingest_def = None
+
+    # --- SYNTHESIS SECTION ---
+    if st.session_state.ingest_word:
+        st.markdown(f"### Target Word: **{st.session_state.ingest_word}**")
+        
+        if not st.session_state.ingest_def:
+            with st.spinner("Synthesizing COGLI Definition..."):
+                client, drive_service = init_engines()
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    temperature=0.0,
+                    messages=[
+                        {"role": "system", "content": "You are a high-precision lexicographer. Provide the definition of the word using best-of-breed sources (OED, Cambridge). Format strictly as: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
+                        {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}
+                    ]
+                )
+                st.session_state.ingest_def = response.choices[0].message.content
+
+        st.info(st.session_state.ingest_def)
+
+        # --- STAGING BUTTON ---
+        if st.button("📥 STAGE THIS WORD", use_container_width=True):
+            st.warning("Staging UI works! Google Drive write-back will be connected next.")
