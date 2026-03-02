@@ -11,10 +11,10 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CSS (ULTRA-SYMMETRY & HIDDEN TRIGGERS) ---
+# --- CSS (ALIGNMENT & HIDDEN BRIDGE) ---
 st.markdown("""
 <style>
-    /* 1. Symmetrical Input Box & Buttons */
+    /* 1. Force the Voice Button and Text Input to be identical heights */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
@@ -30,13 +30,14 @@ st.markdown("""
         text-transform: uppercase !important;
     }
 
-    /* 2. Hide the Technical Bridge Triggers */
+    /* 2. Physically hide the technical bridge triggers from the UI */
     div:has(> input[aria-label="bridge_storage"]),
-    div:has(> button[aria-label="bridge_click"]) {
+    div:has(> button[key="bridge_trigger"]) {
         display: none !important;
+        height: 0px !important;
     }
     
-    /* 3. Force Row Alignment */
+    /* 3. Ensure columns are level */
     [data-testid="column"] {
         display: flex;
         align-items: flex-end;
@@ -78,14 +79,14 @@ def load_data():
 
 df = load_data()
 
-# --- STATE MGMT ---
+# --- STATE MANAGEMENT ---
 if "ingest_word" not in st.session_state: st.session_state.ingest_word = ""
 if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
+if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
 
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# Tiers Selection
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: st.checkbox("Maintenance", value=True)
@@ -96,12 +97,12 @@ st.button("▶ START VOCAB QUIZ", type="primary")
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 
-# --- THE HARDENED BRIDGE (Hidden Triggers) ---
-# This area is hidden by CSS but used by JavaScript to talk to Python
-bridge_data = st.text_input("bridge_storage", key="bridge_storage", label_visibility="hidden")
-bridge_trigger = st.button("bridge_click", key="bridge_trigger", label_visibility="hidden")
+# --- THE HARDENED BRIDGE (Technical - Hidden by CSS) ---
+bridge_data = st.text_input("bridge_storage", key="bridge_storage", label_visibility="collapsed")
+# Removed label_visibility from button to fix TypeError; CSS now handles hiding it
+bridge_trigger = st.button("bridge_click", key="bridge_trigger")
 
-# --- THE VISUAL INPUT ROW ---
+# --- THE UNIFIED INPUT ROW ---
 col1, col2 = st.columns(2)
 
 with col1:
@@ -129,20 +130,15 @@ with col1:
                     reader.readAsDataURL(blob);
                     reader.onloadend = () => {
                         const parentDoc = window.parent.document;
-                        
-                        // 1. Find and populate the hidden data storage
                         const storage = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'bridge_storage');
-                        // 2. Find the hidden trigger button
                         const trigger = Array.from(parentDoc.querySelectorAll('button')).find(el => el.innerText === 'bridge_click');
                         
                         if (storage && trigger) {
                             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                             setter.call(storage, reader.result);
                             storage.dispatchEvent(new Event('input', { bubbles: true }));
-                            // 3. Physically click the hidden button to wake up Python
                             setTimeout(() => { trigger.click(); }, 100);
                         }
-                        setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 2000);
                     };
                 };
                 mediaRecorder.start();
@@ -156,15 +152,24 @@ with col1:
     """, height=50)
 
 with col2:
-    # THE UNIFIED BOX: Where voice transcription lands or where you type manually.
-    text_input = st.text_input("WORD_ENTRY", value="", key="main_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
-    if text_input and text_input.upper() != st.session_state.ingest_word:
-        st.session_state.ingest_word = text_input.upper()
+    # This function handles the manual typing update
+    def sync_text():
+        st.session_state.ingest_word = st.session_state.main_input.upper()
         st.session_state.ingest_def = None
 
-# --- TRIGGERED PROCESSING (The Baton Handoff) ---
+    # THE UNIFIED BOX: value is tied to state so voice transcription appears here too
+    st.text_input(
+        "WORD_ENTRY", 
+        value=st.session_state.ingest_word, 
+        key="main_input", 
+        on_change=sync_text,
+        placeholder="TYPE OR SPEAK...", 
+        label_visibility="collapsed"
+    )
+
+# --- VOICE PROCESSING (Triggered by Hidden Button) ---
 if bridge_trigger and bridge_data:
-    with st.status("⏳ PROCESSING VOICE...", expanded=False) as status:
+    with st.status("⏳ TRANSCRIBING VOICE...") as status:
         try:
             b64_data = bridge_data.split(",")[1]
             audio_file = io.BytesIO(base64.b64decode(b64_data))
@@ -172,14 +177,15 @@ if bridge_trigger and bridge_data:
             transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
             st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
             st.session_state.ingest_def = None
-            status.update(label="✅ VOICE TRANSCRIBED!", state="complete")
+            status.update(label="✅ DONE!", state="complete", expanded=False)
             st.rerun()
         except:
-            status.update(label="❌ VOICE ERROR", state="error")
+            status.update(label="❌ ERROR", state="error")
 
 # --- RESULTS AREA ---
-if st.session_state.ingest_word != "":
-    st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
+if st.session_state.ingest_word:
+    st.markdown(f"**WORD:** `{st.session_state.ingest_word}`")
+    
     if not st.session_state.ingest_def:
         with st.spinner("Defining..."):
             response = client.chat.completions.create(
@@ -193,4 +199,4 @@ if st.session_state.ingest_word != "":
     st.info(st.session_state.ingest_def)
     
     if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic is ready.")
+        st.success(f"STAGED: {st.session_state.ingest_word}. Writing to Drive...")
