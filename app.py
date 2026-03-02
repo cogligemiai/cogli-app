@@ -11,14 +11,10 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CSS (SYMMETRY & TOTAL INVISIBILITY) ---
+# --- CSS (ALIGNMENT & SYMMETRY) ---
 st.markdown("""
 <style>
-    /* 1. Header Styling */
-    .word-label { font-size: 24px; color: white; }
-    .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
-    
-    /* 2. Symmetrical Input Box & Buttons */
+    /* 1. Symmetrical Input Box & Buttons */
     div[data-testid="stTextInput"] input {
         height: 45px !important;
         font-size: 16px !important;
@@ -33,7 +29,7 @@ st.markdown("""
         border-radius: 8px !important;
     }
 
-    /* 3. Total Invisibility for Technical Bridge Fields */
+    /* 2. Hide the Technical Bridge Triggers */
     div[data-testid="stVerticalBlock"] > div:has(input[aria-label="bridge_storage"]) {
         position: absolute !important;
         opacity: 0 !important;
@@ -41,11 +37,13 @@ st.markdown("""
         pointer-events: none !important;
     }
     
-    /* 4. Force Row Alignment */
+    /* 3. Force Row Alignment */
     [data-testid="column"] {
         display: flex;
         align-items: flex-end;
     }
+    
+    .detected-word { color: #28a745; font-weight: bold; font-family: monospace; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -84,14 +82,14 @@ def load_data():
 df = load_data()
 
 # --- STATE MANAGEMENT ---
-if "ingest_word" not in st.session_state: st.session_state.ingest_word = ""
-if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
-if "last_bridge_data" not in st.session_state: st.session_state.last_bridge_data = ""
+if "active_word" not in st.session_state: st.session_state.active_word = ""
+if "active_def" not in st.session_state: st.session_state.active_def = None
+if "last_processed_audio" not in st.session_state: st.session_state.last_processed_audio = ""
 
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# Quiz Section
+# Tiers Selection
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: st.checkbox("Maintenance", value=True)
@@ -105,7 +103,7 @@ st.subheader("📥 COGLI Vocab Lookup")
 # 1. THE HIDDEN BRIDGE
 bridge_data = st.text_input("bridge_storage", key="bridge_storage", label_visibility="collapsed")
 
-# 2. THE VISUAL INPUT ROW
+# 2. THE INPUT ROW
 col1, col2 = st.columns(2)
 
 with col1:
@@ -138,6 +136,7 @@ with col1:
                             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                             setter.call(storage, reader.result);
                             storage.dispatchEvent(new Event('input', { bubbles: true }));
+                            storage.blur();
                         }
                     };
                 };
@@ -152,43 +151,41 @@ with col1:
     """, height=50)
 
 with col2:
-    # Manual Text Entry
-    text_input = st.text_input("WORD_ENTRY", value=st.session_state.ingest_word, key="main_input", placeholder="TYPE OR SPEAK...", label_visibility="collapsed")
-    if text_input and text_input.upper() != st.session_state.ingest_word:
-        st.session_state.ingest_word = text_input.upper()
-        st.session_state.ingest_def = None
-        st.rerun()
+    text_input = st.text_input("WORD_ENTRY", key="manual_entry", placeholder="TYPE WORD HERE...", label_visibility="collapsed")
+    if text_input and text_input.upper() != st.session_state.active_word:
+        st.session_state.active_word = text_input.upper()
+        st.session_state.active_def = None
 
-# --- DIRECT-FLOW VOICE PROCESSING ---
-if bridge_data and bridge_data != st.session_state.last_bridge_data:
-    st.session_state.last_bridge_data = bridge_data
-    with st.spinner("⏳ TRANSCRIBING VOICE..."):
+# --- VOICE LOGIC ---
+if bridge_data and bridge_data != st.session_state.last_processed_audio:
+    st.session_state.last_processed_audio = bridge_data
+    with st.spinner("⏳ TRANSCRIBING..."):
         try:
             b64_data = bridge_data.split(",")[1]
             audio_file = io.BytesIO(base64.b64decode(b64_data))
             audio_file.name = "audio.webm"
             transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-            st.session_state.ingest_word = transcript.text.strip().strip('.').upper()
-            st.session_state.ingest_def = None
-            st.rerun() # Force UI to show the word and definition
+            st.session_state.active_word = transcript.text.strip().strip('.').upper()
+            st.session_state.active_def = None
+            st.rerun()
         except:
-            st.error("Voice Processing Failed.")
+            st.error("Voice failed.")
 
-# --- RESULTS AREA ---
-if st.session_state.ingest_word:
-    st.markdown(f"**WORD DETECTED:** `{st.session_state.ingest_word}`")
+# --- SHARED RESULTS AREA ---
+if st.session_state.active_word:
+    st.markdown(f"**WORD DETECTED:** <span class='detected-word'>{st.session_state.active_word}</span>", unsafe_allow_html=True)
     
-    if not st.session_state.ingest_def:
+    if not st.session_state.active_def:
         with st.spinner("Defining..."):
             response = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.0,
                 messages=[{"role": "system", "content": "Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
-                          {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}]
+                          {"role": "user", "content": f"Define: {st.session_state.active_word}"}]
             )
-            st.session_state.ingest_def = response.choices[0].message.content
+            st.session_state.active_def = response.choices[0].message.content
     
-    st.info(st.session_state.ingest_def)
+    st.info(st.session_state.active_def)
     
     if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.ingest_word}. Database logic ready.")
+        st.success(f"STAGED: {st.session_state.active_word}")
