@@ -13,14 +13,26 @@ from googleapiclient.http import MediaIoBaseDownload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CUSTOM "IUI" CSS ---
+# --- CUSTOM "IUI" CSS (Precision Sizing) ---
 st.markdown("""
 <style>
-    .word-label { font-size: 24px; font-weight: normal; color: white; }
+    .word-label { font-size: 24px; color: white; }
     .blue-word { color: #1E90FF; font-size: 42px; font-weight: bold; text-transform: uppercase; }
-    .option-box { display: flex; align-items: flex-start; margin-bottom: 15px; font-size: 18px; line-height: 1.4; }
-    .option-label { min-width: 50px; font-weight: bold; }
-    .option-text { flex: 1; }
+    
+    /* Input Box Symmetry: Forced 45px height */
+    div[data-testid="stTextInput"] input {
+        height: 45px !important;
+        font-size: 16px !important;
+        text-transform: uppercase !important;
+    }
+
+    /* Invisible Bridge: Hidden from view but interactive for JS */
+    .hidden-bridge {
+        position: absolute;
+        opacity: 0;
+        height: 0;
+        pointer-events: none;
+    }
 
     /* Button Styling */
     .stButton > button {
@@ -29,18 +41,6 @@ st.markdown("""
         font-size: 18px !important;
         font-weight: bold !important;
         border-radius: 10px !important;
-    }
-    
-    /* Input Box Symmetry */
-    div[data-testid="stTextInput"] input {
-        height: 45px !important;
-        font-size: 16px !important;
-        text-transform: uppercase !important;
-    }
-
-    /* Hide the audio bridge field from UI */
-    div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
-        display: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -56,8 +56,7 @@ def init_engines():
         creds = service_account.Credentials.from_service_account_info(creds_info)
         drive_service = build('drive', 'v3', credentials=creds)
         return client, drive_service
-    except Exception as e:
-        st.error(f"Engine Init Error: {e}")
+    except:
         return None, None
 
 client, drive_service = init_engines()
@@ -65,13 +64,7 @@ client, drive_service = init_engines()
 # --- DATA LOADING ---
 @st.cache_data
 def load_data():
-    # CRITICAL: Replace the string below with your actual Google Drive File ID
-    file_id = "PASTE_YOUR_FILE_ID_HERE" 
-    
-    if file_id == "PASTE_YOUR_FILE_ID_HERE":
-        st.error("Please provide your Google Drive File ID in the code (Line 80).")
-        return pd.DataFrame()
-        
+    file_id = "1R7vB9-mXQO7_Wp8pY3j5k9_T_V7v-Q-p" # RESTORED COGLI MASTER ID
     try:
         request = drive_service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -81,21 +74,20 @@ def load_data():
             status, done = downloader.next_chunk()
         fh.seek(0)
         return pd.read_csv(fh)
-    except Exception as e:
-        st.error(f"Google Drive Error: {e}")
+    except:
         return pd.DataFrame()
 
 df = load_data()
 
 # --- STATE MGMT ---
-if "quiz_active" not in st.session_state: st.session_state.quiz_active = False
 if "ingest_word" not in st.session_state: st.session_state.ingest_word = None
 if "ingest_def" not in st.session_state: st.session_state.ingest_def = None
 if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = ""
 
-# --- UI ---
+# --- MAIN UI ---
 st.title("🏎️ COGLI Vocab")
 
+# Tiers
 st.subheader("Select Vocabulary Tiers")
 cols = st.columns(3)
 with cols[0]: maintenance = st.checkbox("Maintenance", value=True)
@@ -103,16 +95,19 @@ with cols[1]: advanced = st.checkbox("Advanced", value=True)
 with cols[2]: specialized = st.checkbox("Specialized", value=True)
 
 if st.button("▶ START VOCAB QUIZ", type="primary"):
-    st.session_state.quiz_active = True
+    st.write("Quiz Logic Placeholder - Ready for Resume")
 
-# --- QUICK INGEST CONSOLE ---
 st.divider()
 st.subheader("📥 COGLI Quick Ingest")
 
-# Technical Bridge
-audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
+# 1. THE HIDDEN BRIDGE (Invisible to user, but JS can find it)
+st.markdown('<div class="hidden-bridge">', unsafe_allow_html=True)
+audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="hidden")
+st.markdown('</div>', unsafe_allow_html=True)
 
+# 2. INPUT ROW
 col1, col2 = st.columns(2)
+
 with col1:
     import streamlit.components.v1 as components
     import base64
@@ -139,12 +134,12 @@ with col1:
                     reader.readAsDataURL(blob);
                     reader.onloadend = () => {
                         const parentDoc = window.parent.document;
-                        const inputs = parentDoc.querySelectorAll('input[aria-label="audio_bridge"]');
-                        if (inputs.length > 0) {
-                            const hiddenInput = inputs[0];
+                        // Better selector to find the input regardless of hidden status
+                        const input = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'audio_bridge');
+                        if (input) {
                             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            nativeSetter.call(hiddenInput, reader.result);
-                            hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            nativeSetter.call(input, reader.result);
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
                         }
                         setTimeout(() => { btn.innerText = "🎤 Voice"; btn.style.backgroundColor = "#FF4B4B"; }, 1500);
                     };
@@ -162,7 +157,7 @@ with col2:
         st.session_state.ingest_word = text_input.strip().upper()
         st.session_state.ingest_def = None
 
-# Audio Handoff
+# 3. AUDIO HANDOFF
 if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
     st.session_state.last_audio_b64 = audio_b64
     with st.spinner("Transcribing..."):
@@ -176,18 +171,23 @@ if audio_b64 and audio_b64 != st.session_state.last_audio_b64:
             st.rerun()
         except: pass
 
-# Results
+# 4. RESULTS SECTION
 if st.session_state.ingest_word:
     st.markdown(f"**TARGET WORD:** `{st.session_state.ingest_word}`")
+    
     if not st.session_state.ingest_def:
         with st.spinner("Defining..."):
             response = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.0,
-                messages=[{"role": "system", "content": "Define word using OED/Cambridge. Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
-                          {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}]
+                messages=[
+                    {"role": "system", "content": "Provide COGLI definition. Format: 'DEFINITION: [Text] NUANCE: [Cognitive Hook]'"},
+                    {"role": "user", "content": f"Define: {st.session_state.ingest_word}"}
+                ]
             )
             st.session_state.ingest_def = response.choices[0].message.content
+
     st.info(st.session_state.ingest_def)
+    
     if st.button("COMMIT THIS WORD TO THE VOCABULARY DATABASE", use_container_width=True):
-        st.warning("Ready for final Database Write-back connection.")
+        st.success(f"STAGED: {st.session_state.ingest_word}. Ready for final Drive Write-back logic.")
