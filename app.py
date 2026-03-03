@@ -7,12 +7,12 @@ import random
 from openai import OpenAI
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (Precision Alignment) ---
 st.markdown("""
 <style>
     .word-label { font-size: 24px; color: white; margin-bottom: 10px; }
@@ -42,14 +42,14 @@ def init_engines():
         return None, None
 
 client, drive_service = init_engines()
+FILE_ID = "1KQ7VX8qS23Hfd9WQ_2PZ50XKpFtTLMz4UaZHQtWx54Q"
 
-# --- DATA LOADING ---
+# --- DATA LOADING (Google Sheet Export) ---
 @st.cache_data
 def load_data():
-    # UPDATED TO YOUR CORRECT FILE ID
-    file_id = "1KQ7VX8qS23Hfd9WQ_2PZ50XKpFtTLMz4UaZHQtWx54Q"
     try:
-        request = drive_service.files().get_media(fileId=file_id)
+        # Exporting the Google Sheet as a CSV for Pandas to read
+        request = drive_service.files().export(fileId=FILE_ID, mimeType='text/csv')
         fh = io.BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
         done = False
@@ -58,17 +58,39 @@ def load_data():
         fh.seek(0)
         data = pd.read_csv(fh)
         data.columns = data.columns.str.strip()
-        
-        # Fix for the "Actually we go" header in Column A
-        if data.columns[0] != "Word":
-            data.rename(columns={data.columns[0]: "Word"}, inplace=True)
-            
         return data
     except Exception as e:
-        st.error(f"Drive Error: {e}")
+        st.error(f"Google Sheet Connection Error: {e}")
         return pd.DataFrame()
 
 df = load_data()
+
+# --- DATABASE COMMIT FUNCTION ---
+def commit_to_db(word, definition):
+    try:
+        # 1. Load current data
+        current_df = load_data()
+        # 2. Append new word
+        new_row = pd.DataFrame([{
+            "Word": word,
+            "Definition": definition,
+            "Date": pd.Timestamp.now().strftime('%Y-%m-%d'),
+            "R": 0, "W": 0, "M": 1, "Level": 1
+        }])
+        updated_df = pd.concat([current_df, new_row], ignore_index=True)
+        
+        # 3. Convert to CSV for upload
+        csv_buffer = io.StringIO()
+        updated_df.to_csv(csv_buffer, index=False)
+        media = MediaIoBaseUpload(io.BytesIO(csv_buffer.getvalue().encode()), mimetype='text/csv')
+        
+        # 4. Update the Google Sheet
+        drive_service.files().update(fileId=FILE_ID, media_body=media).execute()
+        st.cache_data.clear() # Refresh data
+        return True
+    except Exception as e:
+        st.error(f"Database Commit Failed: {e}")
+        return False
 
 # --- STATE MANAGEMENT ---
 if "quiz_active" not in st.session_state: st.session_state.quiz_active = False
@@ -82,7 +104,7 @@ if "last_audio_b64" not in st.session_state: st.session_state.last_audio_b64 = "
 # --- UI ---
 st.title("🏎️ COGLI Vocab")
 
-# 1. TIER SELECTION & QUIZ START
+# 1. QUIZ SECTION
 if not st.session_state.quiz_active:
     st.subheader("Select Vocabulary Tiers")
     cols = st.columns(3)
@@ -106,19 +128,15 @@ if not st.session_state.quiz_active:
                 random.shuffle(options)
                 st.session_state.options = options
                 st.rerun()
-        else:
-            st.error("Could not find 'Level' column or data is empty.")
 
-# 2. THE QUIZ ENGINE
 if st.session_state.quiz_active and st.session_state.current_word is not None:
     word = st.session_state.current_word['Word']
     st.markdown(f"<div class='word-label'>The word is...</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='blue-word'>{word}</div>", unsafe_allow_html=True)
-
     labels = ["A", "B", "C"]
     for i, opt in enumerate(st.session_state.options):
         st.markdown(f"<div class='option-box'><div class='option-label'>{labels[i]}:</div><div class='option-text'>{opt}</div></div>", unsafe_allow_html=True)
-
+    
     if st.session_state.user_choice is None:
         choice_cols = st.columns(3)
         if choice_cols[0].button("A"): st.session_state.user_choice = st.session_state.options[0]
@@ -126,26 +144,19 @@ if st.session_state.quiz_active and st.session_state.current_word is not None:
         if choice_cols[2].button("C"): st.session_state.user_choice = st.session_state.options[2]
         if st.session_state.user_choice: st.rerun()
     else:
-        if st.session_state.user_choice == st.session_state.current_word['Definition']:
-            st.success("CORRECT")
-        else:
-            st.error(f"INCORRECT. Correct answer: {st.session_state.current_word['Definition']}")
-        
-        # Use 'M' column as fallback for Nuance if needed
-        nuance = st.session_state.current_word.get('Nuance') or st.session_state.current_word.get('M')
-        st.info(f"**NUANCE:** {nuance}")
-        
+        if st.session_state.user_choice == st.session_state.current_word['Definition']: st.success("CORRECT")
+        else: st.error(f"INCORRECT. Correct: {st.session_state.current_word['Definition']}")
+        st.info(f"**NUANCE:** {st.session_state.current_word.get('Nuance', 'N/A')}")
         if st.button("NEXT WORD ▶"):
             st.session_state.current_word = None
             st.session_state.user_choice = None
             st.session_state.quiz_active = False
             st.rerun()
 
-# 3. COGLI VOCAB LOOKUP
+# 2. LOOKUP SECTION
 st.divider()
 st.subheader("📥 COGLI Vocab Lookup")
 audio_b64 = st.text_input("audio_bridge", key="audio_b64", label_visibility="collapsed")
-
 col1, col2 = st.columns(2)
 with col1:
     import streamlit.components.v1 as components
@@ -183,7 +194,6 @@ with col1:
         };
     </script>
     """, height=50)
-
 with col2:
     text_input = st.text_input("WORD_ENTRY", key="manual_entry", placeholder="TYPE WORD HERE...", label_visibility="collapsed")
     if text_input and text_input.upper() != st.session_state.active_word:
@@ -211,4 +221,7 @@ if st.session_state.active_word:
             st.session_state.active_def = response.choices[0].message.content
     st.info(st.session_state.active_def)
     if st.button("COMMIT WORD TO VOCABULARY DATABASE", use_container_width=True):
-        st.success(f"STAGED: {st.session_state.active_word}")
+        if commit_to_db(st.session_state.active_word, st.session_state.active_def):
+            st.success(f"SUCCESSFULLY COMMITTED: {st.session_state.active_word}")
+            st.session_state.active_word = ""
+            st.session_state.active_def = None
