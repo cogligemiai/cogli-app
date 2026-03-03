@@ -6,3 +6,4 @@ google-auth-httplib2
 pandas
 certifi
 streamlit-mic-recorder
+gspread
