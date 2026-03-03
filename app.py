@@ -13,7 +13,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 # --- CONFIGURATION ---
 st.set_page_config(page_title="COGLI Vocab", page_icon="🏎️", layout="centered")
 
-# --- CSS (SYMMETRY & CAR MODE STYLING) ---
+# --- CSS (SYMMETRY & TOTAL INVISIBILITY) ---
 st.markdown("""
 <style>
     .word-label { font-size: 24px; color: white; }
@@ -28,16 +28,17 @@ st.markdown("""
         font-size: 18px !important;
         font-weight: bold !important;
         border-radius: 8px !important;
-        text-transform: uppercase !important;
     }
     
-    /* Hidden Bridge */
+    /* Total Invisibility for Technical Bridge */
     div[data-testid="stVerticalBlock"] > div:has(input[aria-label="audio_bridge"]) {
         position: absolute !important;
         opacity: 0 !important;
         height: 0 !important;
         pointer-events: none !important;
     }
+    
+    .detected-word { color: #28a745; font-weight: bold; font-family: monospace; font-size: 24px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,7 +61,6 @@ FILE_ID = "1KQ7VX8qS23Hfd9WQ_2PZ50XKpFtTLMz4UaZHQtWx54Q"
 
 # --- UTILITIES ---
 def speak(text):
-    """Generates and plays audio using OpenAI TTS."""
     response = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
     b64 = base64.b64encode(response.content).decode()
     md = f'<audio autoplay="true" src="data:audio/mp3;base64,{b64}">'
@@ -139,57 +139,22 @@ if st.session_state.quiz_active and st.session_state.current_word is not None:
     for i, opt in enumerate(st.session_state.options):
         st.markdown(f"<div class='option-box'><div class='option-label'>{labels[i]}:</div><div class='option-text'>{opt}</div></div>", unsafe_allow_html=True)
 
-    # --- CAR MODE LOGIC ---
+    # --- CAR MODE (AUTONOMOUS) ---
     if st.session_state.quiz_mode == "Car Mode (Autonomous)":
-        if st.session_state.user_choice is None:
-            # Speak the question
-            q_text = f"The word is {word}. Option A: {st.session_state.options[0]}. Option B: {st.session_state.options[1]}. Option C: {st.session_state.options[2]}. What is your choice?"
-            speak(q_text)
-            
-            # Voice Answer Bridge
-            audio_b64_quiz = st.text_input("audio_bridge_quiz", key="audio_bridge_quiz", label_visibility="collapsed")
-            import streamlit.components.v1 as components
-            components.html("""
-                <button id="quiz-mic" style="width: 100%; height: 80px; font-size: 20px; font-weight: bold; background-color: #FF4B4B; color: white; border: none; border-radius: 10px; cursor: pointer;">🎤 TAP & SAY A, B, or C</button>
-                <script>
-                    const btn = document.getElementById('quiz-mic');
-                    btn.onclick = async () => {
-                        btn.innerText = "🔴 LISTENING...";
-                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        const mediaRecorder = new MediaRecorder(stream);
-                        const chunks = [];
-                        mediaRecorder.ondataavailable = e => chunks.push(e.data);
-                        mediaRecorder.onstop = () => {
-                            const blob = new Blob(chunks, { type: 'audio/webm' });
-                            const reader = new FileReader();
-                            reader.readAsDataURL(blob);
-                            reader.onloadend = () => {
-                                const parentDoc = window.parent.document;
-                                const bridge = Array.from(parentDoc.querySelectorAll('input')).find(el => el.getAttribute('aria-label') === 'audio_bridge_quiz');
-                                if (bridge) {
-                                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                    setter.call(bridge, reader.result);
-                                    bridge.dispatchEvent(new Event('input', { bubbles: true }));
-                                }
-                            };
-                        };
-                        mediaRecorder.start();
-                        setTimeout(() => { mediaRecorder.stop(); stream.getTracks().forEach(t => t.stop()); }, 2000);
-                    };
-                </script>
-            """, height=100)
-            
-            if audio_bridge_quiz := st.session_state.get("audio_bridge_quiz"):
-                if "data:audio" in audio_bridge_quiz:
-                    b64_data = audio_bridge_quiz.split(",")[1]
-                    transcript = client.audio.transcriptions.create(model="whisper-1", file=io.BytesIO(base64.b64decode(b64_data)))
-                    ans = transcript.text.strip().upper()
-                    if "A" in ans: st.session_state.user_choice = st.session_state.options[0]
-                    elif "B" in ans: st.session_state.user_choice = st.session_state.options[1]
-                    elif "C" in ans: st.session_state.user_choice = st.session_state.options[2]
-                    st.rerun()
+        q_text = f"The word is {word}. Option A: {st.session_state.options[0]}. Option B: {st.session_state.options[1]}. Option C: {st.session_state.options[2]}."
+        speak(q_text)
+        
+        with st.spinner("Thinking Gap..."):
+            time.sleep(5) # 5-second gap for user to guess
+        
+        ans_text = f"The answer is {st.session_state.current_word['Definition']}. Nuance: {st.session_state.current_word.get('Nuance', '')}. Moving to next word."
+        speak(ans_text)
+        
+        time.sleep(5) # Resolution gap
+        st.session_state.current_word = None
+        st.rerun()
 
-    # --- MANUAL MODE LOGIC ---
+    # --- MANUAL MODE ---
     else:
         if st.session_state.user_choice is None:
             choice_cols = st.columns(3)
@@ -197,24 +162,11 @@ if st.session_state.quiz_active and st.session_state.current_word is not None:
             if choice_cols[1].button("B"): st.session_state.user_choice = st.session_state.options[1]
             if choice_cols[2].button("C"): st.session_state.user_choice = st.session_state.options[2]
             if st.session_state.user_choice: st.rerun()
-
-    # --- RESOLUTION ---
-    if st.session_state.user_choice:
-        is_correct = st.session_state.user_choice == st.session_state.current_word['Definition']
-        res_text = "Correct!" if is_correct else f"Incorrect. The correct answer was {st.session_state.current_word['Definition']}."
-        nuance = st.session_state.current_word.get('Nuance', '')
-        
-        if is_correct: st.success(res_text)
-        else: st.error(res_text)
-        st.info(f"**NUANCE:** {nuance}")
-        
-        if st.session_state.quiz_mode == "Car Mode (Autonomous)":
-            speak(f"{res_text}. Nuance: {nuance}. Moving to next word.")
-            time.sleep(3)
-            st.session_state.current_word = None
-            st.session_state.user_choice = None
-            st.rerun()
         else:
+            is_correct = st.session_state.user_choice == st.session_state.current_word['Definition']
+            if is_correct: st.success("Correct!")
+            else: st.error(f"Incorrect. Correct: {st.session_state.current_word['Definition']}")
+            st.info(f"**NUANCE:** {st.session_state.current_word.get('Nuance', '')}")
             if st.button("NEXT WORD ▶"):
                 st.session_state.current_word = None
                 st.session_state.user_choice = None
